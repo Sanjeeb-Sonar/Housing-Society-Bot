@@ -11,7 +11,7 @@ from telegram.ext import Application, MessageHandler, CommandHandler, ContextTyp
 from config import BOT_TOKEN
 from database import init_db, add_listing, get_stats, cleanup_expired
 from classifier import classifier
-from matcher import find_matches, find_interested_buyers, get_no_results_message
+from matcher import find_matches, find_interested_buyers
 
 # Configure logging
 logging.basicConfig(
