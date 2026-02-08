@@ -46,7 +46,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Classified: {result}")
     
     if result["listing_type"] == "offer":
-        # Store the listing
+        # Store the listing silently
         listing_id = add_listing(
             user_id=user.id,
             username=user.username,
@@ -61,7 +61,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         logger.info(f"Stored listing #{listing_id} in category: {result['category']}")
         
-        # TWO-WAY MATCHING: Show interested buyers to the seller
+        # Show interested buyers if any exist
         buyers_response = find_interested_buyers(
             category=result["category"],
             subcategory=result["subcategory"]
@@ -72,16 +72,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 buyers_response,
                 parse_mode='Markdown'
             )
-            logger.info(f"Showed interested buyers to seller for: {result['category']}")
-        else:
-            # Confirm listing saved
-            await update.message.reply_text(
-                f"✅ Your listing has been saved! We'll notify you when someone is looking for this.",
-                parse_mode='Markdown'
-            )
+            logger.info(f"Showed interested buyers for: {result['category']}")
+        # No response if no buyers - silent save
     
     elif result["listing_type"] == "query":
-        # Store the query so sellers can see it later
+        # Store the query silently
         query_id = add_listing(
             user_id=user.id,
             username=user.username,
@@ -96,25 +91,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         logger.info(f"Stored query #{query_id} in category: {result['category']}")
         
-        # Search for matching listings and respond
+        # Show matching listings if any exist
         response = find_matches(
             category=result["category"],
             subcategory=result["subcategory"]
         )
         
         if response:
-            # Reply to the query with matches
             await update.message.reply_text(
                 response,
                 parse_mode='Markdown'
             )
             logger.info(f"Responded to query for: {result['category']}")
-        else:
-            # No matches found - confirm query saved
-            await update.message.reply_text(
-                f"🔍 No listings found yet, but your request has been saved! Sellers will be notified.",
-                parse_mode='Markdown'
-            )
+        # No response if no matches - silent save
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
