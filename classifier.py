@@ -150,6 +150,57 @@ class MessageClassifier:
         
         return None
     
+    def _extract_property_source(self, text: str) -> Optional[str]:
+        """Detect if property listing is from owner or broker."""
+        text_lower = text.lower()
+        
+        owner_keywords = [
+            "owner", "direct owner", "no broker", "no brokerage", 
+            "malik", "owner direct", "by owner", "from owner",
+            "without broker", "brokerage free", "owner selling"
+        ]
+        
+        broker_keywords = [
+            "broker", "agent", "dealer", "brokerage", "commission",
+            "property dealer", "real estate", "dalal", "via broker"
+        ]
+        
+        for keyword in owner_keywords:
+            if keyword in text_lower:
+                return "owner"
+        
+        for keyword in broker_keywords:
+            if keyword in text_lower:
+                return "broker"
+        
+        return None
+    
+    def _extract_gender_preference(self, text: str) -> Optional[str]:
+        """Detect gender preference for roommate/flatmate listings."""
+        text_lower = text.lower()
+        
+        male_keywords = [
+            "male roommate", "male flatmate", "boys only", "male only",
+            "gents only", "men only", "bachelor male", "male bachelor",
+            "ladka", "ladke", "boys flatmate", "male preferred"
+        ]
+        
+        female_keywords = [
+            "female roommate", "female flatmate", "girls only", "female only",
+            "ladies only", "women only", "lady flatmate", "female bachelor",
+            "ladki", "ladkiyan", "girls flatmate", "female preferred"
+        ]
+        
+        for keyword in male_keywords:
+            if keyword in text_lower:
+                return "male"
+        
+        for keyword in female_keywords:
+            if keyword in text_lower:
+                return "female"
+        
+        return None
+    
     def _keyword_classify(self, text: str) -> Optional[dict]:
         """Fallback keyword-based classification."""
         listing_type = self._detect_listing_type(text)
@@ -163,12 +214,33 @@ class MessageClassifier:
         category, subcategory = category_result
         contact = self._extract_contact(text)
         
-        return {
+        result = {
             "category": category,
             "subcategory": subcategory,
             "listing_type": listing_type,
             "contact": contact
         }
+        
+        # Add property source metadata
+        if category == "property":
+            source = self._extract_property_source(text)
+            if source:
+                result["property_source"] = source
+        
+        # Add gender preference for roommate
+        if subcategory and ("roommate" in subcategory or "flatmate" in subcategory):
+            gender = self._extract_gender_preference(text)
+            if gender:
+                result["gender_preference"] = gender
+        
+        # Also check for roommate/flatmate in the text
+        text_lower = text.lower()
+        if "roommate" in text_lower or "flatmate" in text_lower:
+            gender = self._extract_gender_preference(text)
+            if gender:
+                result["gender_preference"] = gender
+        
+        return result
 
 
 # Singleton instance
