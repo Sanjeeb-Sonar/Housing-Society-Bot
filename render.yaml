@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: housing-society-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: DATABASE_PATH
+        value: housing_bot.db
+      - key: LISTING_EXPIRY_DAYS
+        value: "180"
