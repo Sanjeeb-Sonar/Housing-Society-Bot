@@ -31,16 +31,31 @@ def init_db():
             listing_type TEXT NOT NULL,
             contact TEXT,
             message TEXT NOT NULL,
+            property_type TEXT,
+            gender_preference TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP
         )
     """)
+    
+    # Add new columns to existing tables (for migration)
+    try:
+        cursor.execute("ALTER TABLE listings ADD COLUMN property_type TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute("ALTER TABLE listings ADD COLUMN gender_preference TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     
     # Create indexes for faster queries
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_category ON listings(category)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_listing_type ON listings(listing_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_expires_at ON listings(expires_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON listings(created_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_property_type ON listings(property_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_gender_preference ON listings(gender_preference)")
     
     conn.commit()
     conn.close()
@@ -56,7 +71,9 @@ def add_listing(
     subcategory: Optional[str],
     listing_type: str,
     contact: Optional[str],
-    message: str
+    message: str,
+    property_type: Optional[str] = None,
+    gender_preference: Optional[str] = None
 ) -> int:
     """Add a new listing to the database."""
     conn = get_connection()
@@ -67,10 +84,12 @@ def add_listing(
     cursor.execute("""
         INSERT INTO listings 
         (user_id, username, first_name, message_id, chat_id, category, 
-         subcategory, listing_type, contact, message, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         subcategory, listing_type, contact, message, property_type, 
+         gender_preference, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (user_id, username, first_name, message_id, chat_id, category,
-          subcategory, listing_type, contact, message, expires_at))
+          subcategory, listing_type, contact, message, property_type,
+          gender_preference, expires_at))
     
     listing_id = cursor.lastrowid
     conn.commit()
@@ -82,11 +101,14 @@ def add_listing(
 def get_matching_listings(
     category: str,
     subcategory: Optional[str] = None,
+    property_type: Optional[str] = None,
+    gender_preference: Optional[str] = None,
     limit: int = 5
 ) -> list:
     """
     Get listings matching a query.
     Returns offers when someone is looking for something.
+    Filters by property_type (sale/rent) and gender_preference (male/female) when specified.
     Sorted by most recent first.
     """
     conn = get_connection()
@@ -96,26 +118,34 @@ def get_matching_listings(
     cursor.execute("DELETE FROM listings WHERE expires_at < ?", (datetime.now(),))
     conn.commit()
     
-    # Search for offers in the category
+    # Build dynamic query with filters
+    query = """
+        SELECT * FROM listings 
+        WHERE category = ? 
+        AND listing_type = 'offer'
+        AND expires_at > ?
+    """
+    params = [category, datetime.now()]
+    
+    # Add subcategory filter if specified
     if subcategory:
-        cursor.execute("""
-            SELECT * FROM listings 
-            WHERE category = ? 
-            AND listing_type = 'offer'
-            AND (subcategory LIKE ? OR message LIKE ?)
-            AND expires_at > ?
-            ORDER BY created_at DESC
-            LIMIT ?
-        """, (category, f"%{subcategory}%", f"%{subcategory}%", datetime.now(), limit))
-    else:
-        cursor.execute("""
-            SELECT * FROM listings 
-            WHERE category = ? 
-            AND listing_type = 'offer'
-            AND expires_at > ?
-            ORDER BY created_at DESC
-            LIMIT ?
-        """, (category, datetime.now(), limit))
+        query += " AND (subcategory LIKE ? OR message LIKE ?)"
+        params.extend([f"%{subcategory}%", f"%{subcategory}%"])
+    
+    # Add property_type filter if specified (exact match when specified)
+    if property_type:
+        query += " AND property_type = ?"
+        params.append(property_type)
+    
+    # Add gender_preference filter if specified (exact match when specified)
+    if gender_preference:
+        query += " AND gender_preference = ?"
+        params.append(gender_preference)
+    
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    
+    cursor.execute(query, params)
     
     results = cursor.fetchall()
     conn.close()

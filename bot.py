@@ -35,18 +35,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user
     
-    # Classify the message
+    # Classify the message using LLM
     result = classifier.classify(text)
     
     if not result:
-        # Message doesn't match any category or is general chat
+        # Message doesn't match any category or is irrelevant - stay silent
         logger.debug(f"Ignored message: {text[:50]}...")
         return
     
     logger.info(f"Classified: {result}")
     
     if result["listing_type"] == "offer":
-        # Store the listing silently
+        # Store the listing silently with metadata
         listing_id = add_listing(
             user_id=user.id,
             username=user.username,
@@ -57,14 +57,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subcategory=result["subcategory"],
             listing_type="offer",
             contact=result["contact"],
-            message=text
+            message=text,
+            property_type=result.get("property_type"),
+            gender_preference=result.get("gender_preference")
         )
         logger.info(f"Stored listing #{listing_id} in category: {result['category']}")
         
         # Show interested buyers if any exist
         buyers_response = find_interested_buyers(
             category=result["category"],
-            subcategory=result["subcategory"]
+            subcategory=result["subcategory"],
+            property_type=result.get("property_type"),
+            gender_preference=result.get("gender_preference")
         )
         
         if buyers_response:
@@ -76,7 +80,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # No response if no buyers - silent save
     
     elif result["listing_type"] == "query":
-        # Store the query silently
+        # Store the query silently with metadata
         query_id = add_listing(
             user_id=user.id,
             username=user.username,
@@ -87,14 +91,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subcategory=result["subcategory"],
             listing_type="query",
             contact=result["contact"],
-            message=text
+            message=text,
+            property_type=result.get("property_type"),
+            gender_preference=result.get("gender_preference")
         )
         logger.info(f"Stored query #{query_id} in category: {result['category']}")
         
-        # Show matching listings if any exist
+        # Show matching listings if any exist (filtered by property_type and gender)
         response = find_matches(
             category=result["category"],
-            subcategory=result["subcategory"]
+            subcategory=result["subcategory"],
+            property_type=result.get("property_type"),
+            gender_preference=result.get("gender_preference")
         )
         
         if response:

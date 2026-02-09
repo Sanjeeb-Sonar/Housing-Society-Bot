@@ -1,10 +1,15 @@
-"""Query matcher to find relevant listings for queries."""
+"""Query matcher to find relevant listings for queries with LLM-based summarization."""
 
 from datetime import datetime
 from typing import Optional
 from database import get_matching_listings, get_matching_queries
-from keywords import CATEGORIES
 from config import MAX_RESULTS
+
+# Import LLM for summarization
+try:
+    from llm_classifier import llm_classifier
+except ImportError:
+    llm_classifier = None
 
 
 def deduplicate_by_user(listings: list) -> list:
@@ -21,44 +26,37 @@ def deduplicate_by_user(listings: list) -> list:
     return unique
 
 
-def extract_property_source(message: str) -> Optional[str]:
-    """Detect if property is from owner or broker."""
-    msg_lower = message.lower()
-    
-    owner_keywords = ["owner", "no broker", "no brokerage", "malik", "direct"]
-    broker_keywords = ["broker", "agent", "dealer", "brokerage", "dalal"]
-    
-    for kw in owner_keywords:
-        if kw in msg_lower:
-            return "👤Owner"
-    
-    for kw in broker_keywords:
-        if kw in msg_lower:
-            return "🏢Broker"
-    
+def get_property_type_label(property_type: Optional[str]) -> Optional[str]:
+    """Get display label for property type."""
+    if property_type == "sale":
+        return "🏷️Sale"
+    elif property_type == "rent":
+        return "🔑Rent"
     return None
 
 
-def extract_gender_preference(message: str) -> Optional[str]:
-    """Detect gender preference for roommate/flatmate."""
-    msg_lower = message.lower()
-    
-    male_kw = ["male", "boys", "gents", "men", "ladka", "ladke", "bachelor"]
-    female_kw = ["female", "girls", "ladies", "women", "ladki", "ladkiyan"]
-    
-    for kw in female_kw:
-        if kw in msg_lower:
-            return "👩Female"
-    
-    for kw in male_kw:
-        if kw in msg_lower:
-            return "👨Male"
-    
+def get_gender_label(gender: Optional[str]) -> Optional[str]:
+    """Get display label for gender preference."""
+    if gender == "female":
+        return "👩Female"
+    elif gender == "male":
+        return "👨Male"
     return None
+
+
+def summarize_message(message: str) -> str:
+    """Summarize a message using LLM, with fallback."""
+    if llm_classifier and llm_classifier.client:
+        return llm_classifier.summarize_description(message)
+    else:
+        # Fallback: return first 100 chars
+        if len(message) > 100:
+            return message[:97] + "..."
+        return message
 
 
 def format_listing_response(listings: list, category: str, subcategory: Optional[str]) -> str:
-    """Format listings into a clean, creative response with metadata tags."""
+    """Format listings into a clean, creative response with metadata tags and summarized descriptions."""
     if not listings:
         return None
     
@@ -68,8 +66,24 @@ def format_listing_response(listings: list, category: str, subcategory: Optional
     if not listings:
         return None
     
-    category_data = CATEGORIES.get(category, {})
-    emoji = category_data.get("emoji", "📋")
+    # Get category emoji
+    category_emojis = {
+        "property": "🏠",
+        "furniture": "🪑",
+        "maid": "🧹",
+        "plumber": "🔧",
+        "electrician": "💡",
+        "carpenter": "🪚",
+        "driver": "🚗",
+        "ac_repair": "❄️",
+        "tutor": "📚",
+        "packers_movers": "📦",
+        "vehicle": "🚙",
+        "pest_control": "🐜",
+        "painter": "🎨",
+        "security_guard": "🛡️"
+    }
+    emoji = category_emojis.get(category, "📋")
     
     label = subcategory or category
     count = len(listings)
@@ -81,25 +95,28 @@ def format_listing_response(listings: list, category: str, subcategory: Optional
         username = listing.get("username") or listing.get("first_name") or "Anon"
         contact = listing.get("contact")
         message = listing["message"]
-        original_message = message  # Keep original for tag extraction
         
-        # Extract tags
+        # Build tags from metadata
         tags = []
-        if category == "property":
-            source = extract_property_source(original_message)
-            if source:
-                tags.append(source)
         
-        if "roommate" in original_message.lower() or "flatmate" in original_message.lower():
-            gender = extract_gender_preference(original_message)
-            if gender:
-                tags.append(gender)
+        # Property type tag (sale/rent)
+        prop_type = listing.get("property_type")
+        if prop_type:
+            label_tag = get_property_type_label(prop_type)
+            if label_tag:
+                tags.append(label_tag)
         
-        # Truncate message
-        if len(message) > 50:
-            message = message[:47] + "..."
+        # Gender preference tag
+        gender = listing.get("gender_preference")
+        if gender:
+            label_tag = get_gender_label(gender)
+            if label_tag:
+                tags.append(label_tag)
         
-        # Build entry with tags
+        # Get summarized description
+        summary = summarize_message(message)
+        
+        # Build entry
         tag_str = " ".join(tags)
         if contact:
             entry = f"• **@{username}** ({contact})"
@@ -109,14 +126,14 @@ def format_listing_response(listings: list, category: str, subcategory: Optional
         if tag_str:
             entry += f" [{tag_str}]"
         
-        entry += f" - _{message}_"
+        entry += f" - _{summary}_"
         entries.append(entry)
     
     return header + "\n".join(entries)
 
 
 def format_buyers_response(buyers: list, category: str, subcategory: Optional[str]) -> str:
-    """Format interested buyers into a clean response with metadata tags."""
+    """Format interested buyers into a clean response with summarized descriptions."""
     if not buyers:
         return None
     
@@ -136,17 +153,26 @@ def format_buyers_response(buyers: list, category: str, subcategory: Optional[st
         username = buyer.get("username") or buyer.get("first_name") or "Anon"
         contact = buyer.get("contact")
         message = buyer["message"]
-        original_message = message
         
-        # Extract tags
+        # Build tags
         tags = []
-        if "roommate" in original_message.lower() or "flatmate" in original_message.lower():
-            gender = extract_gender_preference(original_message)
-            if gender:
-                tags.append(gender)
         
-        if len(message) > 50:
-            message = message[:47] + "..."
+        # Property type preference
+        prop_type = buyer.get("property_type")
+        if prop_type:
+            label_tag = get_property_type_label(prop_type)
+            if label_tag:
+                tags.append(label_tag)
+        
+        # Gender preference
+        gender = buyer.get("gender_preference")
+        if gender:
+            label_tag = get_gender_label(gender)
+            if label_tag:
+                tags.append(label_tag)
+        
+        # Get summarized description
+        summary = summarize_message(message)
         
         # Build entry
         tag_str = " ".join(tags)
@@ -158,17 +184,28 @@ def format_buyers_response(buyers: list, category: str, subcategory: Optional[st
         if tag_str:
             entry += f" [{tag_str}]"
         
-        entry += f" - _{message}_"
+        entry += f" - _{summary}_"
         entries.append(entry)
     
     return header + "\n".join(entries)
 
 
-def find_matches(category: str, subcategory: Optional[str] = None) -> Optional[str]:
-    """Find matching listings for a query. Returns None if no matches."""
+def find_matches(
+    category: str, 
+    subcategory: Optional[str] = None,
+    property_type: Optional[str] = None,
+    gender_preference: Optional[str] = None
+) -> Optional[str]:
+    """
+    Find matching listings for a query.
+    Filters by property_type and gender_preference when specified.
+    Returns None if no matches.
+    """
     listings = get_matching_listings(
         category=category,
         subcategory=subcategory,
+        property_type=property_type,
+        gender_preference=gender_preference,
         limit=MAX_RESULTS
     )
     
@@ -178,7 +215,12 @@ def find_matches(category: str, subcategory: Optional[str] = None) -> Optional[s
     return format_listing_response(listings, category, subcategory)
 
 
-def find_interested_buyers(category: str, subcategory: Optional[str] = None) -> Optional[str]:
+def find_interested_buyers(
+    category: str, 
+    subcategory: Optional[str] = None,
+    property_type: Optional[str] = None,
+    gender_preference: Optional[str] = None
+) -> Optional[str]:
     """Find people looking for something in this category."""
     buyers = get_matching_queries(
         category=category,
