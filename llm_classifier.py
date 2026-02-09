@@ -67,13 +67,13 @@ GENDER_PREFERENCE: none
 CONTACT: none
 """
 
-SUMMARIZE_PROMPT = """Summarize this listing in exactly 5-10 words.
-Include: property type, price, key feature.
-No full sentences, just key info.
+SUMMARIZE_PROMPT = """Summarize this listing in 5-10 words.
+Only include details that are mentioned. Skip missing info entirely.
+Do NOT say "price not specified" or "unknown" or similar.
 
 Listing: "{message}"
 
-Summary (5-10 words):"""
+Summary:"""
 
 
 
