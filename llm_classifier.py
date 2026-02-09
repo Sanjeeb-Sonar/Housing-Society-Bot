@@ -29,9 +29,20 @@ CATEGORIES = [
 ]
 
 CLASSIFICATION_PROMPT = """You are a message classifier for a housing society group chat.
-Classify the following message into ONE category and identify if it's an OFFER or QUERY.
+Classify ONLY if the message is an ACTUAL listing offer or a genuine search request.
 
-Categories:
+IMPORTANT: IGNORE these types of messages (classify as "ignore"):
+- Status updates: "issue resolved", "deal done", "thanks for help"
+- General discussions: "buy and sell has been resolved", "found a tenant"
+- Greetings: "good morning", "hello everyone"
+- Acknowledgments: "ok", "noted", "thanks"
+- Questions about process: "how to list?", "what's the procedure?"
+
+Only classify as offer/query if the person is ACTIVELY:
+- OFFERING something: "2BHK for sale, 50L, call me" or "Maid available, contact 9876543210"
+- SEARCHING for something: "Need 2BHK on rent" or "Looking for plumber urgently"
+
+Categories (only if ACTUAL offer/query):
 - property: flats, houses, rooms, rent, buy, sell property, roommate, flatmate
 - furniture: sofa, table, bed, fridge, TV, chairs
 - maid: maids, cooks, nannies, domestic help, cleaning
@@ -46,19 +57,19 @@ Categories:
 - pest_control: cockroach, termite, pest issues
 - painter: painting, wall paint
 - security_guard: watchman, security
-- ignore: greetings, general chat, unrelated messages
+- ignore: ANYTHING that is NOT an actual offer or search request
 
 Message: "{message}"
 
-Respond in EXACTLY this format (nothing else):
+Respond in EXACTLY this format:
 CATEGORY: <category>
 TYPE: <offer or query>
-SUBCATEGORY: <optional specific item like "2bhk", "cook", "roommate", "flatmate" etc or "none">
+SUBCATEGORY: <specific item like "2bhk", "roommate" etc or "none">
 PROPERTY_TYPE: <"sale" if buying/selling, "rent" if renting, or "none">
-GENDER_PREFERENCE: <"male" if for males only, "female" if for females only, or "none">
+GENDER_PREFERENCE: <"male" or "female" if specified, or "none">
 CONTACT: <phone number if found, or "none">
 
-If the message is general chat/greeting/unrelated, respond:
+For general chat/status updates/discussions, respond:
 CATEGORY: ignore
 TYPE: none
 SUBCATEGORY: none
