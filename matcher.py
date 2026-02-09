@@ -92,7 +92,9 @@ def format_listing_response(listings: list, category: str, subcategory: Optional
     
     entries = []
     for listing in listings:
-        username = listing.get("username") or listing.get("first_name") or "Anon"
+        # Only use @ prefix for actual Telegram usernames, not first_name
+        tg_username = listing.get("username")
+        display_name = listing.get("first_name") or "Anon"
         contact = listing.get("contact")
         message = listing["message"]
         
@@ -116,12 +118,17 @@ def format_listing_response(listings: list, category: str, subcategory: Optional
         # Get summarized description
         summary = summarize_message(message)
         
-        # Build entry
+        # Build entry - use @username if available, otherwise just display name
         tag_str = " ".join(tags)
-        if contact:
-            entry = f"• **@{username}** ({contact})"
+        if tg_username:
+            name_part = f"**@{tg_username}**"
         else:
-            entry = f"• **@{username}**"
+            name_part = f"**{display_name}**"
+        
+        if contact:
+            entry = f"• {name_part} ({contact})"
+        else:
+            entry = f"• {name_part}"
         
         if tag_str:
             entry += f" [{tag_str}]"
@@ -150,7 +157,9 @@ def format_buyers_response(buyers: list, category: str, subcategory: Optional[st
     
     entries = []
     for buyer in buyers:
-        username = buyer.get("username") or buyer.get("first_name") or "Anon"
+        # Only use @ prefix for actual Telegram usernames, not first_name
+        tg_username = buyer.get("username")
+        display_name = buyer.get("first_name") or "Anon"
         contact = buyer.get("contact")
         message = buyer["message"]
         
@@ -174,12 +183,17 @@ def format_buyers_response(buyers: list, category: str, subcategory: Optional[st
         # Get summarized description
         summary = summarize_message(message)
         
-        # Build entry
+        # Build entry - use @username if available, otherwise just display name
         tag_str = " ".join(tags)
-        if contact:
-            entry = f"• **@{username}** ({contact})"
+        if tg_username:
+            name_part = f"**@{tg_username}**"
         else:
-            entry = f"• **@{username}**"
+            name_part = f"**{display_name}**"
+        
+        if contact:
+            entry = f"• {name_part} ({contact})"
+        else:
+            entry = f"• {name_part}"
         
         if tag_str:
             entry += f" [{tag_str}]"
