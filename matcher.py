@@ -221,10 +221,12 @@ def find_interested_buyers(
     property_type: Optional[str] = None,
     gender_preference: Optional[str] = None
 ) -> Optional[str]:
-    """Find people looking for something in this category."""
+    """Find people looking for something in this category, filtered by type."""
     buyers = get_matching_queries(
         category=category,
         subcategory=subcategory,
+        property_type=property_type,
+        gender_preference=gender_preference,
         limit=MAX_RESULTS
     )
     

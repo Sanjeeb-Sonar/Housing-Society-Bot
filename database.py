@@ -156,36 +156,47 @@ def get_matching_listings(
 def get_matching_queries(
     category: str,
     subcategory: Optional[str] = None,
+    property_type: Optional[str] = None,
+    gender_preference: Optional[str] = None,
     limit: int = 5
 ) -> list:
     """
     Get queries (buyers) matching an offer.
     Returns people who are looking for something.
+    Filters by property_type (sale/rent) and gender_preference (male/female) when specified.
     Sorted by most recent first.
     """
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Search for queries in the category
+    # Build dynamic query with filters
+    query = """
+        SELECT * FROM listings 
+        WHERE category = ? 
+        AND listing_type = 'query'
+        AND expires_at > ?
+    """
+    params = [category, datetime.now()]
+    
+    # Add subcategory filter if specified
     if subcategory:
-        cursor.execute("""
-            SELECT * FROM listings 
-            WHERE category = ? 
-            AND listing_type = 'query'
-            AND (subcategory LIKE ? OR message LIKE ?)
-            AND expires_at > ?
-            ORDER BY created_at DESC
-            LIMIT ?
-        """, (category, f"%{subcategory}%", f"%{subcategory}%", datetime.now(), limit))
-    else:
-        cursor.execute("""
-            SELECT * FROM listings 
-            WHERE category = ? 
-            AND listing_type = 'query'
-            AND expires_at > ?
-            ORDER BY created_at DESC
-            LIMIT ?
-        """, (category, datetime.now(), limit))
+        query += " AND (subcategory LIKE ? OR message LIKE ?)"
+        params.extend([f"%{subcategory}%", f"%{subcategory}%"])
+    
+    # Add property_type filter if specified (exact match)
+    if property_type:
+        query += " AND property_type = ?"
+        params.append(property_type)
+    
+    # Add gender_preference filter if specified (exact match)
+    if gender_preference:
+        query += " AND gender_preference = ?"
+        params.append(gender_preference)
+    
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    
+    cursor.execute(query, params)
     
     results = cursor.fetchall()
     conn.close()
