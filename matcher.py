@@ -208,11 +208,12 @@ def find_matches(
     category: str, 
     subcategory: Optional[str] = None,
     property_type: Optional[str] = None,
-    gender_preference: Optional[str] = None
+    gender_preference: Optional[str] = None,
+    chat_id: Optional[int] = None
 ) -> Optional[str]:
     """
     Find matching listings for a query.
-    Filters by property_type and gender_preference when specified.
+    Filters by chat_id (group isolation), property_type and gender_preference.
     Returns None if no matches.
     """
     listings = get_matching_listings(
@@ -220,6 +221,7 @@ def find_matches(
         subcategory=subcategory,
         property_type=property_type,
         gender_preference=gender_preference,
+        chat_id=chat_id,
         limit=MAX_RESULTS
     )
     
@@ -233,14 +235,16 @@ def find_interested_buyers(
     category: str, 
     subcategory: Optional[str] = None,
     property_type: Optional[str] = None,
-    gender_preference: Optional[str] = None
+    gender_preference: Optional[str] = None,
+    chat_id: Optional[int] = None
 ) -> Optional[str]:
-    """Find people looking for something in this category, filtered by type."""
+    """Find people looking for something in this category, filtered by type and group."""
     buyers = get_matching_queries(
         category=category,
         subcategory=subcategory,
         property_type=property_type,
         gender_preference=gender_preference,
+        chat_id=chat_id,
         limit=MAX_RESULTS
     )
     

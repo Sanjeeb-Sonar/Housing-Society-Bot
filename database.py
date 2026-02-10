@@ -103,12 +103,13 @@ def get_matching_listings(
     subcategory: Optional[str] = None,
     property_type: Optional[str] = None,
     gender_preference: Optional[str] = None,
+    chat_id: Optional[int] = None,
     limit: int = 5
 ) -> list:
     """
     Get listings matching a query.
     Returns offers when someone is looking for something.
-    Filters by property_type (sale/rent) and gender_preference (male/female) when specified.
+    Filters by chat_id (group isolation), property_type and gender_preference.
     Sorted by most recent first.
     """
     conn = get_connection()
@@ -126,6 +127,11 @@ def get_matching_listings(
         AND expires_at > ?
     """
     params = [category, datetime.now()]
+    
+    # Filter by group (each group sees only its own listings)
+    if chat_id:
+        query += " AND chat_id = ?"
+        params.append(chat_id)
     
     # Add subcategory filter if specified
     if subcategory:
@@ -158,12 +164,13 @@ def get_matching_queries(
     subcategory: Optional[str] = None,
     property_type: Optional[str] = None,
     gender_preference: Optional[str] = None,
+    chat_id: Optional[int] = None,
     limit: int = 5
 ) -> list:
     """
     Get queries (buyers) matching an offer.
     Returns people who are looking for something.
-    Filters by property_type (sale/rent) and gender_preference (male/female) when specified.
+    Filters by chat_id (group isolation), property_type and gender_preference.
     Sorted by most recent first.
     """
     conn = get_connection()
@@ -177,6 +184,11 @@ def get_matching_queries(
         AND expires_at > ?
     """
     params = [category, datetime.now()]
+    
+    # Filter by group (each group sees only its own listings)
+    if chat_id:
+        query += " AND chat_id = ?"
+        params.append(chat_id)
     
     # Add subcategory filter if specified
     if subcategory:

@@ -109,7 +109,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             category=result["category"],
             subcategory=result["subcategory"],
             property_type=result.get("property_type"),
-            gender_preference=result.get("gender_preference")
+            gender_preference=result.get("gender_preference"),
+            chat_id=update.effective_chat.id
         )
         
         if buyers_response:
@@ -143,7 +144,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             category=result["category"],
             subcategory=result["subcategory"],
             property_type=result.get("property_type"),
-            gender_preference=result.get("gender_preference")
+            gender_preference=result.get("gender_preference"),
+            chat_id=update.effective_chat.id
         )
         
         if response:
