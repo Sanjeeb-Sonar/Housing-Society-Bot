@@ -168,9 +168,9 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     response = f"📊 **Active Listings**: {stats['total']}\n\n"
     
-    from keywords import CATEGORIES
+    from keywords import CATEGORY_EMOJIS
     for category, count in stats["by_category"].items():
-        emoji = CATEGORIES.get(category, {}).get("emoji", "📋")
+        emoji = CATEGORY_EMOJIS.get(category, "📋")
         response += f"{emoji} {category.title()}: {count}\n"
     
     await update.message.reply_text(response, parse_mode='Markdown')
