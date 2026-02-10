@@ -5,10 +5,13 @@ Two-way matching: sellers see buyers, buyers see sellers.
 """
 
 import logging
-from telegram import Update
-from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
+from telegram import Update, ChatMemberUpdated
+from telegram.ext import (
+    Application, MessageHandler, CommandHandler,
+    ChatMemberHandler, ContextTypes, filters
+)
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ALLOWED_CHAT_IDS, BOT_ADMIN_ID
 from database import init_db, add_listing, get_stats, cleanup_expired
 from classifier import classifier
 from matcher import find_matches, find_interested_buyers
@@ -21,6 +24,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def is_allowed_chat(chat_id: int) -> bool:
+    """Check if a chat is in the allowed list. If no list is set, allow all."""
+    if not ALLOWED_CHAT_IDS:
+        return True  # No restriction configured
+    return chat_id in ALLOWED_CHAT_IDS
+
+
+async def handle_bot_added(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle when bot is added to a new group. Auto-leave if not authorized."""
+    my_chat_member = update.my_chat_member
+    if not my_chat_member:
+        return
+
+    # Check if the bot was added (status changed to 'member' or 'administrator')
+    new_status = my_chat_member.new_chat_member.status
+    old_status = my_chat_member.old_chat_member.status
+
+    if old_status in ('left', 'kicked') and new_status in ('member', 'administrator'):
+        chat = my_chat_member.chat
+        if not is_allowed_chat(chat.id):
+            logger.warning(f"Bot added to unauthorized group: {chat.title} ({chat.id})")
+            try:
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text="⛔ Sorry, I'm only authorized to work in specific groups. Leaving now."
+                )
+                await context.bot.leave_chat(chat.id)
+                logger.info(f"Left unauthorized group: {chat.title} ({chat.id})")
+            except Exception as e:
+                logger.error(f"Error leaving unauthorized group: {e}")
+        else:
+            logger.info(f"Bot added to authorized group: {chat.title} ({chat.id})")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle all incoming group messages."""
     
@@ -30,6 +67,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Skip if not from a group
     if update.effective_chat.type not in ['group', 'supergroup']:
+        return
+    
+    # Skip if not an allowed group
+    if not is_allowed_chat(update.effective_chat.id):
         return
     
     text = update.message.text
@@ -116,6 +157,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show statistics about active listings."""
+    if not is_allowed_chat(update.effective_chat.id):
+        return
+
     stats = get_stats()
     
     if stats["total"] == 0:
@@ -134,6 +178,9 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help message."""
+    if not is_allowed_chat(update.effective_chat.id):
+        return
+
     help_text = """
 🏠 **Housing Society Bot**
 
@@ -182,6 +229,11 @@ def main():
     init_db()
     logger.info("Database initialized")
     
+    if ALLOWED_CHAT_IDS:
+        logger.info(f"Bot restricted to chat IDs: {ALLOWED_CHAT_IDS}")
+    else:
+        logger.warning("No ALLOWED_CHAT_IDS set - bot will work in ALL groups")
+    
     # Create application
     app = Application.builder().token(BOT_TOKEN).build()
     
@@ -189,6 +241,9 @@ def main():
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("start", help_command))
+    
+    # Handle bot being added to groups (auto-leave unauthorized ones)
+    app.add_handler(ChatMemberHandler(handle_bot_added, ChatMemberHandler.MY_CHAT_MEMBER))
     
     # Handle all text messages in groups
     app.add_handler(MessageHandler(
@@ -204,9 +259,9 @@ def main():
     else:
         logger.warning("Job queue not available - expired listings cleanup disabled")
     
-    # Start the bot
+    # Start the bot with drop_pending_updates to avoid conflict errors
     logger.info("🚀 Bot started! Press Ctrl+C to stop.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":

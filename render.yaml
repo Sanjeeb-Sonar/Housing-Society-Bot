@@ -13,3 +13,8 @@ services:
         value: housing_bot.db
       - key: LISTING_EXPIRY_DAYS
         value: "180"
+      - key: ALLOWED_CHAT_IDS
+        sync: false
+      - key: BOT_ADMIN_ID
+        sync: false
+
