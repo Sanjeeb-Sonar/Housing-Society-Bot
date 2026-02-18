@@ -1,4 +1,4 @@
-"""Test script to verify the classifier with sample messages."""
+"""Test script to verify the classifier and matcher with sample messages."""
 
 import sys
 import io
@@ -7,8 +7,8 @@ import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from classifier import classifier
-from database import init_db, add_listing, get_matching_listings
-from matcher import find_matches
+from database import init_db, add_listing, save_lead_request, get_lead_request, get_leads_for_request
+from matcher import find_matches, format_free_leads, format_paid_leads, format_upsell_message, build_label
 
 # Initialize DB
 init_db()
@@ -89,31 +89,34 @@ print(f"\n[STATS] Results: {passed} passed, {failed} failed out of {len(test_mes
 print("\n\n[FLOW] Testing Full Flow:")
 print("-" * 80)
 
-# Add some sample listings
+# Add some sample listings across different "groups"
 sample_listings = [
-    (1001, "user1", "User One", "property", "2bhk", "Selling 2BHK in Tower A, 60L", "9876543210"),
-    (1002, "user2", "User Two", "property", "2bhk", "2BHK available, Tower C, 55L negotiable", "9111122223"),
-    (1003, "user3", "User Three", "maid", "maid", "Experienced maid available for morning work", "9444455556"),
-    (1004, "user4", "User Four", "plumber", None, "Plumber available, 10 years experience", "9777788889"),
+    (1001, "user1", "User One", -100001, "property", "2bhk", "rent", "2BHK Tower A for rent, 17k/month, family preferred", "9876543210"),
+    (1002, "user2", "User Two", -100002, "property", "2bhk", "rent", "2BHK available Tower C, 15k negotiable, bachelor ok", "9111122223"),
+    (1003, "user3", "User Three", -100001, "property", "2bhk", "rent", "Spacious 2BHK, 18k, family only, newly painted", "9444455556"),
+    (1004, "user4", "User Four", -100003, "maid", "maid", None, "Experienced maid available for morning work", "9444455556"),
+    (1005, "user5", "User Five", -100001, "plumber", None, None, "Plumber available, 10 years experience", "9777788889"),
+    (1006, "user6", "User Six", -100002, "property", "2bhk", "rent", "2BHK for rent, 16k, ground floor, family preferred", "9666677778"),
 ]
 
-for user_id, username, first_name, category, subcategory, message, contact in sample_listings:
+for user_id, username, first_name, chat_id, category, subcategory, prop_type, message, contact in sample_listings:
     add_listing(
         user_id=user_id,
         username=username,
         first_name=first_name,
         message_id=1,
-        chat_id=-1001234567890,
+        chat_id=chat_id,
         category=category,
         subcategory=subcategory,
         listing_type="offer",
         contact=contact,
-        message=message
+        message=message,
+        property_type=prop_type
     )
-    print(f"[OK] Added listing: {category} - {message[:30]}...")
+    print(f"[OK] Added listing (group {chat_id}): {category} - {message[:40]}...")
 
-# Test query matching
-print("\n[QUERY] Testing Query Matching:")
+# Test query matching (cross-group)
+print("\n[QUERY] Testing Cross-Group Matching:")
 print("-" * 80)
 
 queries = [
@@ -126,11 +129,52 @@ for query, category, subcategory in queries:
     print(f"\n[SEARCH] Query: {query}")
     response = find_matches(category, subcategory)
     if response:
-        # Strip emoji for console output
-        response_clean = response.replace("🏠", "[P]").replace("🧹", "[M]").replace("🔧", "[L]")
-        response_clean = response_clean.replace("📞", "Phone:").replace("💡", "Tip:")
-        print(response_clean[:500] + "..." if len(response_clean) > 500 else response_clean)
+        print(response)
+        # Verify no WhatsApp in response
+        if "whatsapp" in response.lower() or "wa.me" in response.lower():
+            print("[FAIL] Response contains WhatsApp reference!")
+        else:
+            print("[PASS] No WhatsApp references")
     else:
         print("No matches found")
+
+# Test lead request flow
+print("\n\n[LEAD] Testing Lead Request Flow:")
+print("-" * 80)
+
+req_id = save_lead_request(
+    user_id=9999,
+    category="property",
+    subcategory="2bhk",
+    property_type="rent",
+    source_chat_id=-100001
+)
+print(f"[OK] Saved lead request #{req_id}")
+
+req = get_lead_request(req_id)
+print(f"[OK] Retrieved lead request: category={req['category']}, sub={req['subcategory']}")
+
+# Get free leads
+free = get_leads_for_request(req_id, limit=2, offset=0)
+print(f"[OK] Free leads: {len(free)} contacts")
+
+label = build_label("property", "2bhk", "rent", None)
+free_msg = format_free_leads(free, label)
+print(f"\n--- Free Leads Message ---")
+print(free_msg)
+
+# Get paid leads (skip free)
+paid = get_leads_for_request(req_id, limit=5, offset=2)
+print(f"\n[OK] Paid leads (after free): {len(paid)} contacts")
+
+if paid:
+    paid_msg = format_paid_leads(paid, label, include_tips=True)
+    print(f"\n--- Paid Leads Message ---")
+    print(paid_msg)
+
+# Test upsell message
+upsell = format_upsell_message(6)
+print(f"\n--- Upsell Message ---")
+print(upsell)
 
 print("\n[DONE] All tests completed!")

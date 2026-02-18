@@ -38,6 +38,36 @@ def init_db():
         )
     """)
     
+    # Lead requests table — tracks what users searched for (used in deep links)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lead_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            subcategory TEXT,
+            property_type TEXT,
+            gender_preference TEXT,
+            source_chat_id INTEGER,
+            free_leads_sent INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Payments table — tracks Stars payments
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            request_id INTEGER NOT NULL,
+            tier TEXT NOT NULL,
+            stars_amount INTEGER NOT NULL,
+            telegram_payment_charge_id TEXT,
+            provider_payment_charge_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (request_id) REFERENCES lead_requests(id)
+        )
+    """)
+    
     # Add new columns to existing tables (for migration)
     try:
         cursor.execute("ALTER TABLE listings ADD COLUMN property_type TEXT")
@@ -56,6 +86,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON listings(created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_property_type ON listings(property_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_gender_preference ON listings(gender_preference)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_lead_req_user ON lead_requests(user_id)")
     
     conn.commit()
     conn.close()
@@ -98,6 +129,130 @@ def add_listing(
     return listing_id
 
 
+# ─── Lead Requests ────────────────────────────────────────────
+
+
+def save_lead_request(
+    user_id: int,
+    category: str,
+    subcategory: Optional[str] = None,
+    property_type: Optional[str] = None,
+    gender_preference: Optional[str] = None,
+    source_chat_id: Optional[int] = None
+) -> int:
+    """Save a lead request and return its ID (used in deep link encoding)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO lead_requests 
+        (user_id, category, subcategory, property_type, gender_preference, source_chat_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, category, subcategory, property_type, gender_preference, source_chat_id))
+    
+    request_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return request_id
+
+
+def get_lead_request(request_id: int) -> Optional[dict]:
+    """Retrieve a lead request by ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM lead_requests WHERE id = ?", (request_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return dict(row)
+    return None
+
+
+def get_leads_for_request(
+    request_id: int,
+    limit: int = 5,
+    offset: int = 0
+) -> list:
+    """
+    Fetch matching listings for a stored lead request.
+    Cross-group: no chat_id filter — shows from all groups.
+    Uses offset to skip already-shown free leads.
+    """
+    req = get_lead_request(request_id)
+    if not req:
+        return []
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Determine listing_type to search for (if user queried, find offers; vice versa)
+    # Lead requests are created for queries, so we find offers
+    query = """
+        SELECT * FROM listings 
+        WHERE category = ? 
+        AND listing_type = 'offer'
+        AND expires_at > ?
+    """
+    params = [req["category"], datetime.now()]
+    
+    if req["subcategory"]:
+        query += " AND (subcategory LIKE ? OR message LIKE ?)"
+        params.extend([f"%{req['subcategory']}%", f"%{req['subcategory']}%"])
+    
+    if req["property_type"]:
+        query += " AND property_type = ?"
+        params.append(req["property_type"])
+    
+    if req["gender_preference"]:
+        query += " AND gender_preference = ?"
+        params.append(req["gender_preference"])
+    
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+    conn.close()
+    
+    return [dict(row) for row in results]
+
+
+# ─── Payments ─────────────────────────────────────────────────
+
+
+def save_payment(
+    user_id: int,
+    request_id: int,
+    tier: str,
+    stars_amount: int,
+    telegram_payment_charge_id: str = "",
+    provider_payment_charge_id: str = ""
+) -> int:
+    """Record a successful payment."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO payments 
+        (user_id, request_id, tier, stars_amount, 
+         telegram_payment_charge_id, provider_payment_charge_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, request_id, tier, stars_amount,
+          telegram_payment_charge_id, provider_payment_charge_id))
+    
+    payment_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return payment_id
+
+
+# ─── Matching (existing, updated for cross-group) ────────────
+
+
 def get_matching_listings(
     category: str,
     subcategory: Optional[str] = None,
@@ -109,7 +264,6 @@ def get_matching_listings(
     """
     Get listings matching a query.
     Returns offers when someone is looking for something.
-    Filters by chat_id (group isolation), property_type and gender_preference.
     Sorted by most recent first.
     """
     conn = get_connection()
@@ -119,7 +273,7 @@ def get_matching_listings(
     cursor.execute("DELETE FROM listings WHERE expires_at < ?", (datetime.now(),))
     conn.commit()
     
-    # Build dynamic query with filters
+    # Build dynamic query with filters — NO chat_id filter for cross-group
     query = """
         SELECT * FROM listings 
         WHERE category = ? 
@@ -127,11 +281,6 @@ def get_matching_listings(
         AND expires_at > ?
     """
     params = [category, datetime.now()]
-    
-    # Filter by group (each group sees only its own listings)
-    if chat_id:
-        query += " AND chat_id = ?"
-        params.append(chat_id)
     
     # Add subcategory filter if specified
     if subcategory:
@@ -170,13 +319,12 @@ def get_matching_queries(
     """
     Get queries (buyers) matching an offer.
     Returns people who are looking for something.
-    Filters by chat_id (group isolation), property_type and gender_preference.
     Sorted by most recent first.
     """
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Build dynamic query with filters
+    # Build dynamic query — NO chat_id filter for cross-group
     query = """
         SELECT * FROM listings 
         WHERE category = ? 
@@ -184,11 +332,6 @@ def get_matching_queries(
         AND expires_at > ?
     """
     params = [category, datetime.now()]
-    
-    # Filter by group (each group sees only its own listings)
-    if chat_id:
-        query += " AND chat_id = ?"
-        params.append(chat_id)
     
     # Add subcategory filter if specified
     if subcategory:
@@ -240,6 +383,56 @@ def get_recent_listings(category: Optional[str] = None, limit: int = 10) -> list
     conn.close()
     
     return [dict(row) for row in results]
+
+
+
+def get_match_stats(
+    category: str,
+    listing_type: str = "offer",
+    subcategory: Optional[str] = None,
+    property_type: Optional[str] = None,
+    gender_preference: Optional[str] = None,
+    chat_id: Optional[int] = None,
+) -> dict:
+    """
+    Get aggregate stats for matching listings/queries.
+    Returns total count and count from last 7 days.
+    Cross-group: no chat_id filter.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Base query — NO chat_id filter for cross-group
+    query = """
+        SELECT COUNT(*) as total FROM listings
+        WHERE category = ?
+        AND listing_type = ?
+        AND expires_at > ?
+    """
+    params = [category, listing_type, datetime.now()]
+
+    # Filters
+    if subcategory:
+        query += " AND (subcategory LIKE ? OR message LIKE ?)"
+        params.extend([f"%{subcategory}%", f"%{subcategory}%"])
+    if property_type:
+        query += " AND property_type = ?"
+        params.append(property_type)
+    if gender_preference:
+        query += " AND gender_preference = ?"
+        params.append(gender_preference)
+
+    cursor.execute(query, params)
+    total = cursor.fetchone()["total"]
+
+    # Count from last 7 days
+    recent_query = query + " AND created_at > ?"
+    recent_params = params + [datetime.now() - timedelta(days=7)]
+    cursor.execute(recent_query, recent_params)
+    recent = cursor.fetchone()["total"]
+
+    conn.close()
+    return {"total": total, "recent_7d": recent}
 
 
 def get_stats() -> dict:

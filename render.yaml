@@ -17,4 +17,9 @@ services:
         sync: false
       - key: BOT_ADMIN_ID
         sync: false
-
+      - key: BOT_USERNAME
+        value: societykakubot
+      - key: TIER1_STARS
+        value: "75"
+      - key: TIER2_STARS
+        value: "250"
