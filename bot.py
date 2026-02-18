@@ -140,6 +140,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 subcategory=result["subcategory"],
                 property_type=result.get("property_type"),
                 gender_preference=result.get("gender_preference"),
+                listing_type="offer",
                 source_chat_id=update.effective_chat.id
             )
             
@@ -195,6 +196,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 subcategory=result["subcategory"],
                 property_type=result.get("property_type"),
                 gender_preference=result.get("gender_preference"),
+                listing_type="query",
                 source_chat_id=update.effective_chat.id
             )
             

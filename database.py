@@ -47,6 +47,7 @@ def init_db():
             subcategory TEXT,
             property_type TEXT,
             gender_preference TEXT,
+            listing_type TEXT DEFAULT 'query',
             source_chat_id INTEGER,
             free_leads_sent INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -138,6 +139,7 @@ def save_lead_request(
     subcategory: Optional[str] = None,
     property_type: Optional[str] = None,
     gender_preference: Optional[str] = None,
+    listing_type: str = "query",
     source_chat_id: Optional[int] = None
 ) -> int:
     """Save a lead request and return its ID (used in deep link encoding)."""
@@ -146,9 +148,9 @@ def save_lead_request(
     
     cursor.execute("""
         INSERT INTO lead_requests 
-        (user_id, category, subcategory, property_type, gender_preference, source_chat_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, category, subcategory, property_type, gender_preference, source_chat_id))
+        (user_id, category, subcategory, property_type, gender_preference, listing_type, source_chat_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, category, subcategory, property_type, gender_preference, listing_type, source_chat_id))
     
     request_id = cursor.lastrowid
     conn.commit()
@@ -179,6 +181,7 @@ def get_leads_for_request(
     """
     Fetch matching listings for a stored lead request.
     Cross-group: no chat_id filter — shows from all groups.
+    If user posted a query → find offers. If user posted an offer → find queries.
     Uses offset to skip already-shown free leads.
     """
     req = get_lead_request(request_id)
@@ -188,26 +191,28 @@ def get_leads_for_request(
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Determine listing_type to search for (if user queried, find offers; vice versa)
-    # Lead requests are created for queries, so we find offers
+    # Show the OPPOSITE type: query → offers, offer → queries
+    search_type = "offer" if req.get("listing_type", "query") == "query" else "query"
+    
     query = """
         SELECT * FROM listings 
         WHERE category = ? 
-        AND listing_type = 'offer'
+        AND listing_type = ?
         AND expires_at > ?
     """
-    params = [req["category"], datetime.now()]
+    params = [req["category"], search_type, datetime.now()]
     
     if req["subcategory"]:
         query += " AND (subcategory LIKE ? OR message LIKE ?)"
         params.extend([f"%{req['subcategory']}%", f"%{req['subcategory']}%"])
     
+    # Relaxed filters: match exact OR NULL (old listings without these fields)
     if req["property_type"]:
-        query += " AND property_type = ?"
+        query += " AND (property_type = ? OR property_type IS NULL)"
         params.append(req["property_type"])
     
     if req["gender_preference"]:
-        query += " AND gender_preference = ?"
+        query += " AND (gender_preference = ? OR gender_preference IS NULL)"
         params.append(req["gender_preference"])
     
     query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
