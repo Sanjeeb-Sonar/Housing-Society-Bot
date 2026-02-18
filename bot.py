@@ -143,18 +143,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 source_chat_id=update.effective_chat.id
             )
             
-            # Add "Get Leads" deep-link button
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    "🔍 Get Leads",
-                    url=f"https://t.me/{BOT_USERNAME}?start=leads_{request_id}"
-                )
-            ]])
+            # Make "🔍 Get Leads" a clickable deep link in the message text
+            deep_link = f"https://t.me/{BOT_USERNAME}?start=leads_{request_id}"
+            response = response.replace(
+                "🔍 Get Leads",
+                f"[🔍 Get Leads]({deep_link})"
+            )
             
             await update.message.reply_text(
                 response,
                 parse_mode='Markdown',
-                reply_markup=keyboard
+                disable_web_page_preview=True
             )
             logger.info(f"Showed interested buyers for: {result['category']}")
         # No response if no buyers - silent save
@@ -198,18 +197,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 source_chat_id=update.effective_chat.id
             )
             
-            # Add "Get Leads" deep-link button
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    "🔍 Get Leads",
-                    url=f"https://t.me/{BOT_USERNAME}?start=leads_{request_id}"
-                )
-            ]])
+            # Make "🔍 Get Leads" a clickable deep link in the message text
+            deep_link = f"https://t.me/{BOT_USERNAME}?start=leads_{request_id}"
+            response = response.replace(
+                "🔍 Get Leads",
+                f"[🔍 Get Leads]({deep_link})"
+            )
             
             await update.message.reply_text(
                 response,
                 parse_mode='Markdown',
-                reply_markup=keyboard
+                disable_web_page_preview=True
             )
             logger.info(f"Responded to query for: {result['category']}")
         # No response if no matches - silent save

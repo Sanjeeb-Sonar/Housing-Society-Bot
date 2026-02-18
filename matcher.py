@@ -169,7 +169,7 @@ def format_hook_response_for_query(
     
     people = "person" if total == 1 else "people"
     line1 = f"{emoji} *Found {total} {people} offering {label}!*{detail_str}"
-    line2 = f"🤖 Tap *\"Get Leads\"* to see the contacts instantly"
+    line2 = f"🤖 Tap *\"🔍 Get Leads\"* to see the contacts instantly"
     
     return f"{line1}\n{line2}"
 
@@ -202,7 +202,7 @@ def format_hook_response_for_offer(
     
     people = "person is" if total == 1 else "people are"
     line1 = f"🔔 *{total} {people} actively looking for {label}!*{time_str}"
-    line2 = f"🤖 Tap *\"Get Leads\"* to connect with buyers instantly"
+    line2 = f"🤖 Tap *\"🔍 Get Leads\"* to connect with buyers instantly"
     
     return f"{line1}\n{line2}"
 
