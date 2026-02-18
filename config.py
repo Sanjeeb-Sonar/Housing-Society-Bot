@@ -22,15 +22,15 @@ MAX_RESULTS = 10
 
 # --- Lead Pricing (Telegram Stars) ---
 # Free leads shown in DM when user clicks "Get Leads"
-FREE_LEADS_COUNT = 2
+FREE_LEADS_COUNT = 1
 
-# Tier 1: ₹59 ≈ 75 Stars → 5 verified contacts
-TIER1_STARS = int(os.getenv("TIER1_STARS", "75"))
-TIER1_LEADS = 5
+# Tier 1: 1 contact for 2 Stars (testing)
+TIER1_STARS = int(os.getenv("TIER1_STARS", "2"))
+TIER1_LEADS = 1
 
-# Tier 2: ₹199 ≈ 250 Stars → 15 verified contacts + negotiation tips
-TIER2_STARS = int(os.getenv("TIER2_STARS", "250"))
-TIER2_LEADS = 15
+# Tier 2: 2 contacts for 5 Stars (testing)
+TIER2_STARS = int(os.getenv("TIER2_STARS", "5"))
+TIER2_LEADS = 2
 
 # Allowed chat IDs (comma-separated). If empty, bot works in all groups.
 _allowed_ids = os.getenv("ALLOWED_CHAT_IDS", "")
