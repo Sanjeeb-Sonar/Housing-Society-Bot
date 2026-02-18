@@ -67,11 +67,29 @@ def build_label(category: str, subcategory: Optional[str], property_type: Option
 
 
 def _extract_short_detail(message: str) -> str:
-    """Extract a short detail from listing message (first 60 chars)."""
+    """Summarize listing message into 5-10 words, stripping phone numbers."""
+    import re
     clean = message.strip().replace("\n", " ")
-    if len(clean) > 60:
-        return clean[:57] + "..."
-    return clean
+    
+    # Remove phone numbers (10-digit, with/without +91, spaces, dashes)
+    clean = re.sub(r'(\+91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}', '', clean)
+    clean = re.sub(r'\b\d{10,12}\b', '', clean)
+    
+    # Remove common filler words/phrases
+    clean = re.sub(r'(?i)\b(contact|call|reach|whatsapp|msg|message|dm|ping)\b', '', clean)
+    clean = re.sub(r'(?i)\b(available|interested|please|kindly|urgently|asap)\b', '', clean)
+    
+    # Clean up extra spaces and punctuation
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    clean = re.sub(r'^[,.\-:]+|[,.\-:]+$', '', clean).strip()
+    
+    # Take first 10 words
+    words = clean.split()
+    if len(words) > 10:
+        return " ".join(words[:10])
+    elif len(words) == 0:
+        return "Listing details"
+    return " ".join(words)
 
 
 def _extract_rent_prices(listings: list) -> Optional[int]:
