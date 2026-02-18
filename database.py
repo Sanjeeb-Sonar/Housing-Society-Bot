@@ -79,6 +79,16 @@ def init_db():
         cursor.execute("ALTER TABLE listings ADD COLUMN gender_preference TEXT")
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    try:
+        cursor.execute("ALTER TABLE lead_requests ADD COLUMN listing_type TEXT DEFAULT 'query'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute("ALTER TABLE lead_requests ADD COLUMN free_leads_sent INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     
     # Create indexes for faster queries
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_category ON listings(category)")
