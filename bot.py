@@ -360,7 +360,8 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
     ])
     
-    await query.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+    # Edit the upsell message to become the invoice
+    await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=keyboard)
 
 
 async def handle_payment_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
