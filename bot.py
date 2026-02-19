@@ -355,19 +355,25 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"3️⃣ Come back and click 'I have paid' below\n"
     )
     
+    # Primary keyboard with "Pay Now" button
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("↗️ Pay Now (Open App)", url=upi_link)],
         [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
     ])
     
-    # Edit the upsell message to become the invoice
+    # Safe keyboard (fallback) without the link button (in case URL fails)
+    safe_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
+    ])
+    
+    # Send invoice as a NEW message
     try:
-        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+        await query.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
     except Exception as e:
-        logger.error(f"Markdown failed, falling back to plain text: {e}")
-        # Fallback to plain text if Markdown fails (e.g. underscores in UPI ID)
+        logger.error(f"Message send failed (Markdown or Button URL): {e}")
+        # Fallback to plain text + SAFE keyboard (no deep link button)
         plain_msg = msg.replace("*", "").replace("`", "").replace("🔹", "-").replace("💳", "")
-        await query.edit_message_text(plain_msg, reply_markup=keyboard)
+        await query.message.reply_text(plain_msg, reply_markup=safe_keyboard)
 
 
 async def handle_payment_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
