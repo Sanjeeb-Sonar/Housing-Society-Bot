@@ -351,7 +351,7 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"🔹 **Amount:** `₹{amount}`\n"
         f"🔗 [Tap here to Pay via UPI]({upi_link})\n\n"
         f"1️⃣ Click the link above or scan QR (if available)\n"
-        f"2️⃣ Pay **₹{amount}** on PhonePe/GPay/Paytm\n"
+        f"[2️⃣ Pay **₹{amount}** on PhonePe/GPay/Paytm]({upi_link})\n"
         f"3️⃣ Come back and click 'I have paid' below\n"
     )
     
