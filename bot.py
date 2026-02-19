@@ -83,6 +83,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
     
+    # DEBUG: Log every message to see if we're receiving them
+    logger.info(f"Received message in chat {update.effective_chat.id}: {update.message.text[:20]}...")
+    
     # Skip if not from a group
     if update.effective_chat.type not in ['group', 'supergroup']:
         return
