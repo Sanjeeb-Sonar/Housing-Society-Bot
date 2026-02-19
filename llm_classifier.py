@@ -149,6 +149,14 @@ class LLMClassifier:
                 # Try to extract phone from original message
                 contact = self._extract_phone(data.get('original_text', ''))
             
+            # Normalize contact if found
+            if contact and contact != 'none':
+                # Remove all non-digits
+                contact = re.sub(r'\D', '', contact)
+                # Keep last 10 digits
+                if len(contact) > 10:
+                    contact = contact[-10:]
+            
             # Extract property_type (sale/rent)
             property_type = data.get('PROPERTY_TYPE', 'none')
             if property_type not in ['sale', 'rent']:
@@ -175,15 +183,19 @@ class LLMClassifier:
     def _extract_phone(self, text: str) -> Optional[str]:
         """Extract phone number from text."""
         patterns = [
-            r'\b[6-9]\d{9}\b',
-            r'\b\+91[\s-]?[6-9]\d{9}\b',
-            r'\b91[\s-]?[6-9]\d{9}\b'
+            # 10 digits start with 6-9, optionally separated by space/dash
+            r'\b[6-9](?:\d[-\s]?){9}\b',
+            # +91 or 91 or 0 followed by 10 digits (with separators)
+            r'(?:\+91|91|0)[-\s]?[6-9](?:\d[-\s]?){9}\b'
         ]
         
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                return re.sub(r'[\s\-\+]', '', match.group())
+                params = re.sub(r'\D', '', match.group())
+                if len(params) > 10:
+                    return params[-10:]
+                return params
         return None
     
     def summarize_description(self, message: str) -> str:
