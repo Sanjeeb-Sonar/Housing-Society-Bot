@@ -340,7 +340,7 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         return
 
-    # UPI Link (for QR generation or clicking)
+    # UPILink (for clicking)
     # Format: upi://pay?pa=ADDRESS&pn=NAME&am=AMOUNT&cu=INR
     upi_link = f"upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&cu=INR"
     
@@ -348,13 +348,15 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"💳 *Payment Required: ₹{amount}*\n\n"
         f"To get *{leads_count} verified contacts*, please pay via UPI:\n\n"
         f"🔹 **UPI ID:** `{UPI_ID}`\n"
-        f"🔹 **Amount:** `₹{amount}`\n\n"
-        f"1️⃣ Open PhonePe/GPay/Paytm\n"
-        f"2️⃣ Pay **₹{amount}** to the UPI ID above\n"
-        f"3️⃣ Come back here and click the button below\n"
+        f"🔹 **Amount:** `₹{amount}`\n"
+        f"🔗 [Tap here to Pay via UPI]({upi_link})\n\n"
+        f"1️⃣ Click the link above or scan QR (if available)\n"
+        f"2️⃣ Pay **₹{amount}** on PhonePe/GPay/Paytm\n"
+        f"3️⃣ Come back and click 'I have paid' below\n"
     )
     
     keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("↗️ Pay Now (Open App)", url=upi_link)],
         [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
     ])
     
