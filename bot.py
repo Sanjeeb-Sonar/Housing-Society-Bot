@@ -19,11 +19,13 @@ from telegram.ext import (
 
 from config import (
     BOT_TOKEN, ALLOWED_CHAT_IDS, BOT_ADMIN_ID, BOT_USERNAME,
-    FREE_LEADS_COUNT, TIER1_STARS, TIER1_LEADS, TIER2_STARS, TIER2_LEADS
+    FREE_LEADS_COUNT, TIER1_PRICE, TIER1_LEADS, TIER2_PRICE, TIER2_LEADS,
+    UPI_ID, UPI_NAME
 )
 from database import (
     init_db, add_listing, get_stats, cleanup_expired,
-    save_lead_request, get_lead_request, get_leads_for_request, save_payment
+    save_lead_request, get_lead_request, get_leads_for_request, 
+    save_payment_claim, get_payment_claim, update_payment_status
 )
 from classifier import classifier
 from matcher import (
@@ -284,11 +286,11 @@ async def _handle_get_leads(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(
-                f"⭐ {TIER1_STARS} Stars — {TIER1_LEADS} Contacts",
+                f"⭐ Pay ₹{TIER1_PRICE} — {TIER1_LEADS} Contacts",
                 callback_data=f"buy_t1_{request_id}"
             )],
             [InlineKeyboardButton(
-                f"⭐ {TIER2_STARS} Stars — {TIER2_LEADS} Contacts + Tips",
+                f"⭐ Pay ₹{TIER2_PRICE} — {TIER2_LEADS} Contacts + Tips",
                 callback_data=f"buy_t2_{request_id}"
             )]
         ])
@@ -307,162 +309,174 @@ async def _handle_get_leads(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     logger.info(f"Sent {len(free_listings)} free leads to user {user_id} for request #{request_id}")
 
 
-# ─── Payment Flow (Telegram Stars) ───────────────────────────
+# ─── Payment Flow (Manual UPI) ──────────────────────────────
 
 
 async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle when user clicks a 'Buy' button — send Stars invoice."""
+    """Handle when user clicks a 'Buy' button — show QR Code + UPI details."""
     query = update.callback_query
     await query.answer()
     
-    data = query.data  # e.g. "buy_t1_123" or "buy_t2_123"
+    data = query.data  # e.g. "buy_t1_123"
     parts = data.split("_")
     
     if len(parts) != 3:
-        await query.message.reply_text("❌ Something went wrong. Please try again.")
+        await query.message.reply_text("❌ Something went wrong.")
         return
     
     tier = parts[1]  # "t1" or "t2"
     try:
         request_id = int(parts[2])
     except ValueError:
-        await query.message.reply_text("❌ Invalid request. Please try again from the group.")
+        await query.message.reply_text("❌ Invalid request.")
         return
-    
-    # Verify lead request exists
-    lead_req = get_lead_request(request_id)
-    if not lead_req:
-        await query.message.reply_text("❌ This request has expired. Please search again in the group.")
-        return
-    
-    label = build_label(
-        lead_req["category"],
-        lead_req.get("subcategory"),
-        lead_req.get("property_type"),
-        lead_req.get("gender_preference")
-    )
     
     if tier == "t1":
-        title = f"{TIER1_LEADS} Verified Leads — {label}"
-        description = f"Get {TIER1_LEADS} verified contacts with details for {label}"
-        stars_amount = TIER1_STARS
-        payload = f"leads_{request_id}_t1"
-        prices = [LabeledPrice(f"{TIER1_LEADS} Verified Contacts", TIER1_STARS)]
-    elif tier == "t2":
-        title = f"{TIER2_LEADS} Verified Leads + Tips — {label}"
-        description = f"Get {TIER2_LEADS} verified contacts + negotiation tips for {label}"
-        stars_amount = TIER2_STARS
-        payload = f"leads_{request_id}_t2"
-        prices = [LabeledPrice(f"{TIER2_LEADS} Contacts + Negotiation Tips", TIER2_STARS)]
-    else:
-        await query.message.reply_text("❌ Invalid tier. Please try again.")
-        return
-    
-    # Send Stars invoice
-    await context.bot.send_invoice(
-        chat_id=query.from_user.id,
-        title=title,
-        description=description,
-        payload=payload,
-        provider_token="",  # Empty string for Telegram Stars
-        currency="XTR",     # XTR = Telegram Stars currency code
-        prices=prices
-    )
-    
-    logger.info(f"Sent Stars invoice to user {query.from_user.id}: {tier} for request #{request_id}")
-
-
-async def handle_precheckout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle pre-checkout query — always approve for Stars."""
-    query = update.pre_checkout_query
-    
-    # Verify the payload is valid
-    payload = query.invoice_payload
-    if not payload.startswith("leads_"):
-        await query.answer(ok=False, error_message="Invalid payment request.")
-        return
-    
-    # Approve the payment
-    await query.answer(ok=True)
-    logger.info(f"Approved pre-checkout for user {query.from_user.id}: {payload}")
-
-
-async def handle_successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle successful Stars payment — deliver paid leads."""
-    payment = update.message.successful_payment
-    user_id = update.effective_user.id
-    payload = payment.invoice_payload
-    
-    # Parse payload: "leads_123_t1" or "leads_123_t2"
-    parts = payload.split("_")
-    if len(parts) != 3:
-        await update.message.reply_text("❌ Payment received but delivery failed. Contact support.")
-        logger.error(f"Invalid payment payload: {payload}")
-        return
-    
-    try:
-        request_id = int(parts[1])
-    except ValueError:
-        await update.message.reply_text("❌ Payment received but delivery failed. Contact support.")
-        return
-    
-    tier = parts[2]
-    
-    # Determine how many leads to deliver
-    if tier == "t1":
+        amount = TIER1_PRICE
         leads_count = TIER1_LEADS
-        stars_amount = TIER1_STARS
-        include_tips = False
     elif tier == "t2":
+        amount = TIER2_PRICE
         leads_count = TIER2_LEADS
-        stars_amount = TIER2_STARS
-        include_tips = True
     else:
-        await update.message.reply_text("❌ Payment received but delivery failed. Contact support.")
         return
+
+    # UPI Link (for QR generation or clicking)
+    # Format: upi://pay?pa=ADDRESS&pn=NAME&am=AMOUNT&cu=INR
+    upi_link = f"upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&cu=INR"
     
-    # Save payment record
-    save_payment(
-        user_id=user_id,
-        request_id=request_id,
-        tier=tier,
-        stars_amount=stars_amount,
-        telegram_payment_charge_id=payment.telegram_payment_charge_id,
-        provider_payment_charge_id=payment.provider_payment_charge_id or ""
+    msg = (
+        f"💳 *Payment Required: ₹{amount}*\n\n"
+        f"To get *{leads_count} verified contacts*, please pay via UPI:\n\n"
+        f"🔹 **UPI ID:** `{UPI_ID}`\n"
+        f"🔹 **Amount:** `₹{amount}`\n\n"
+        f"1️⃣ Open PhonePe/GPay/Paytm\n"
+        f"2️⃣ Pay **₹{amount}** to the UPI ID above\n"
+        f"3️⃣ Come back here and click the button below\n"
     )
     
-    # Get lead request for label
-    lead_req = get_lead_request(request_id)
-    if not lead_req:
-        await update.message.reply_text("❌ Request expired. Payment received — contact support for refund.")
-        return
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
+    ])
     
-    label = build_label(
-        lead_req["category"],
-        lead_req.get("subcategory"),
-        lead_req.get("property_type"),
-        lead_req.get("gender_preference")
+    await query.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+
+
+async def handle_payment_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle when user clicks 'I have paid'."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data  # "claim_123_49"
+    parts = data.split("_")
+    request_id = int(parts[1])
+    amount = int(parts[2])
+    user = query.from_user
+    
+    # Save claim to DB
+    claim_id = save_payment_claim(user.id, request_id, amount)
+    
+    # Notify User
+    await query.edit_message_text(
+        f"⏳ *Payment Claimed!*\n\n"
+        f"Admin has been notified. You will receive the leads automatically once approved (usually within 10-15 mins).",
+        parse_mode='Markdown'
     )
     
-    # Fetch leads (skip the free ones already shown)
-    paid_listings = get_leads_for_request(
-        request_id, 
-        limit=leads_count, 
-        offset=FREE_LEADS_COUNT
-    )
-    
-    if not paid_listings:
-        await update.message.reply_text(
-            "😔 No additional contacts found beyond the free preview. "
-            "Your payment will be refunded automatically."
+    # Notify Admin
+    if BOT_ADMIN_ID:
+        admin_keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{claim_id}"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"reject_{claim_id}")
+            ]
+        ])
+        
+        await context.bot.send_message(
+            chat_id=BOT_ADMIN_ID,
+            text=(
+                f"💰 **New Payment Claim!**\n\n"
+                f"👤 User: @{user.username} (ID: {user.id})\n"
+                f"💵 Amount: ₹{amount}\n"
+                f"🆔 Claim ID: #{claim_id}\n"
+                f"📄 Request ID: #{request_id}"
+            ),
+            reply_markup=admin_keyboard,
+            parse_mode='Markdown'
         )
+        logger.info(f"New payment claim #{claim_id} from user {user.id} sent to admin {BOT_ADMIN_ID}")
+    else:
+        logger.error("BOT_ADMIN_ID not set! Cannot process payment claims.")
+        await query.message.reply_text("⚠ Admin configuration error. Please contact support.")
+
+
+async def handle_admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Admin clicking Approve/Reject."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data  # "approve_99" or "reject_99"
+    action, claim_id_str = data.split("_")
+    claim_id = int(claim_id_str)
+    
+    claim = get_payment_claim(claim_id)
+    if not claim:
+        await query.edit_message_text("❌ Claim not found.")
         return
-    
-    # Deliver the paid leads
-    paid_msg = format_paid_leads(paid_listings, label, include_tips=include_tips)
-    await update.message.reply_text(paid_msg, parse_mode='Markdown')
-    
-    logger.info(f"Delivered {len(paid_listings)} paid leads (tier={tier}) to user {user_id}")
+        
+    if claim['status'] != 'pending':
+        await query.edit_message_text(f"⚠ Claim already {claim['status']}.")
+        return
+
+    if action == "approve":
+        # Update DB
+        update_payment_status(claim_id, 'approved', query.message.message_id)
+        
+        # Deliver leads to User
+        request_id = claim['request_id']
+        amount = claim['amount']
+        
+        # Determine tier details based on amount
+        if amount == TIER1_PRICE:
+            leads_count = TIER1_LEADS
+            include_tips = False
+        else:
+            leads_count = TIER2_LEADS
+            include_tips = True
+            
+        lead_req = get_lead_request(request_id)
+        label = build_label(
+            lead_req["category"],
+            lead_req.get("subcategory"),
+            lead_req.get("property_type"),
+            lead_req.get("gender_preference")
+        )
+        
+        paid_listings = get_leads_for_request(request_id, limit=leads_count, offset=FREE_LEADS_COUNT)
+        paid_msg = format_paid_leads(paid_listings, label, include_tips=include_tips)
+        
+        try:
+            await context.bot.send_message(
+                chat_id=claim['user_id'],
+                text=f"✅ **Payment Approved!**\n\n{paid_msg}",
+                parse_mode='Markdown'
+            )
+            await query.edit_message_text(f"✅ Approved claim #{claim_id} for ₹{amount}.")
+        except Exception as e:
+            logger.error(f"Failed to send leads to user {claim['user_id']}: {e}")
+            await query.edit_message_text(f"⚠ Approved, but failed to send message to user (blocked?).")
+            
+    elif action == "reject":
+        update_payment_status(claim_id, 'rejected', query.message.message_id)
+        
+        try:
+            await context.bot.send_message(
+                chat_id=claim['user_id'],
+                text="❌ **Payment Verification Failed**\n\nAdmin could not verify your payment. Please contact admin directly with screenshot.",
+                parse_mode='Markdown'
+            )
+            await query.edit_message_text(f"❌ Rejected claim #{claim_id}.")
+        except:
+            pass
 
 
 # ─── Commands ─────────────────────────────────────────────────
@@ -565,12 +579,12 @@ def main():
     # ── Group membership handler ──
     app.add_handler(ChatMemberHandler(handle_bot_added, ChatMemberHandler.MY_CHAT_MEMBER))
     
-    # ── Payment handlers ──
+    # ─── Payment handlers ──
     app.add_handler(CallbackQueryHandler(handle_buy_callback, pattern=r"^buy_"))
-    app.add_handler(PreCheckoutQueryHandler(handle_precheckout))
-    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
-    
-    # ── Group text message handler ──
+    app.add_handler(CallbackQueryHandler(handle_payment_claim, pattern=r"^claim_"))
+    app.add_handler(CallbackQueryHandler(handle_admin_decision, pattern=r"^(approve|reject)_"))
+
+    # ─── Group text message handler ──
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP),
         handle_message

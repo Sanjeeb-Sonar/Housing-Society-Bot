@@ -54,16 +54,16 @@ def init_db():
         )
     """)
     
-    # Payments table — tracks Stars payments
+    # Payment Claims table — tracks Manual UPI payments
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS payments (
+        CREATE TABLE IF NOT EXISTS payment_claims (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             request_id INTEGER NOT NULL,
-            tier TEXT NOT NULL,
-            stars_amount INTEGER NOT NULL,
-            telegram_payment_charge_id TEXT,
-            provider_payment_charge_id TEXT,
+            amount INTEGER NOT NULL,
+            upi_ref TEXT,
+            status TEXT DEFAULT 'pending',
+            admin_msg_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (request_id) REFERENCES lead_requests(id)
         )
@@ -193,6 +193,7 @@ def get_leads_for_request(
     Cross-group: no chat_id filter — shows from all groups.
     If user posted a query → find offers. If user posted an offer → find queries.
     Uses offset to skip already-shown free leads.
+    Refined: Groups by contact/user_id to prevent duplicates.
     """
     req = get_lead_request(request_id)
     if not req:
@@ -209,6 +210,8 @@ def get_leads_for_request(
         WHERE category = ? 
         AND listing_type = ?
         AND expires_at > ?
+        AND contact IS NOT NULL
+        AND contact != ''
     """
     params = [req["category"], search_type, datetime.now()]
     
@@ -225,6 +228,10 @@ def get_leads_for_request(
         query += " AND (gender_preference = ? OR gender_preference IS NULL)"
         params.append(req["gender_preference"])
     
+    # Group by contact info (phone num) or user_id if phone is missing
+    # to ensure we don't show the same person twice
+    query += " GROUP BY COALESCE(contact, user_id)"
+    
     query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
     
@@ -236,6 +243,54 @@ def get_leads_for_request(
 
 
 # ─── Payments ─────────────────────────────────────────────────
+
+
+def save_payment_claim(
+    user_id: int,
+    request_id: int,
+    amount: int
+) -> int:
+    """Save a new payment claim."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        INSERT INTO payment_claims (user_id, request_id, amount, status)
+        VALUES (?, ?, ?, 'pending')
+    """, (user_id, request_id, amount))
+    
+    claim_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return claim_id
+
+
+def get_payment_claim(claim_id: int) -> Optional[dict]:
+    """Get payment claim details."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM payment_claims WHERE id = ?", (claim_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    return dict(row) if row else None
+
+
+def update_payment_status(claim_id: int, status: str, admin_msg_id: Optional[int] = None):
+    """Update payment claim status (approved/rejected)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    if admin_msg_id:
+        cursor.execute("UPDATE payment_claims SET status = ?, admin_msg_id = ? WHERE id = ?", 
+                       (status, admin_msg_id, claim_id))
+    else:
+        cursor.execute("UPDATE payment_claims SET status = ? WHERE id = ?", 
+                       (status, claim_id))
+        
+    conn.commit()
+    conn.close()
 
 
 def save_payment(

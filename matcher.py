@@ -6,7 +6,7 @@ Shows compelling hook in group → deep link to DM → free leads → paid upsel
 from datetime import datetime
 from typing import Optional
 from database import get_matching_listings, get_matching_queries, get_match_stats
-from config import MAX_RESULTS, FREE_LEADS_COUNT, TIER1_STARS, TIER1_LEADS, TIER2_STARS, TIER2_LEADS
+from config import MAX_RESULTS, FREE_LEADS_COUNT, TIER1_PRICE, TIER1_LEADS, TIER2_PRICE, TIER2_LEADS
 
 
 # Category emojis
@@ -261,8 +261,8 @@ def format_upsell_message(total_available: int) -> str:
         "━━━━━━━━━━━━━━━━━━━━━━",
         f"📊 *{remaining} more verified contacts available!*\n",
         "💎 *Get Verified Leads:*",
-        f"├ ⭐ {TIER1_STARS} Stars → {TIER1_LEADS} contacts with details",
-        f"└ ⭐ {TIER2_STARS} Stars → {TIER2_LEADS} contacts + negotiation tips\n",
+        f"├ ⭐ ₹{TIER1_PRICE} → {TIER1_LEADS} contacts with details",
+        f"└ ⭐ ₹{TIER2_PRICE} → {TIER2_LEADS} contacts + negotiation tips\n",
         "✅ Verified contacts • 📱 Direct numbers • 💬 Ready to connect",
     ]
     
