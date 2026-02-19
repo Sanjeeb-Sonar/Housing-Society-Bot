@@ -340,13 +340,9 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         return
 
-    import urllib.parse
-    
     # UPI Link (for clicking)
     # Format: upi://pay?pa=ADDRESS&pn=NAME&am=AMOUNT&cu=INR
     upi_link = f"upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&cu=INR"
-    encoded_link = urllib.parse.quote(upi_link)
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={encoded_link}"
     
     msg = (
         f"💳 *Payment Required: ₹{amount}*\n\n"
@@ -354,7 +350,7 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"🔹 **UPI ID:** `{UPI_ID}`\n"
         f"🔹 **Amount:** `₹{amount}`\n"
         f"🔗 [Tap here to Pay via UPI]({upi_link})\n\n"
-        f"1️⃣ **Scan QR Code** above OR click link\n"
+        f"1️⃣ Click the link above or scan QR (if available)\n"
         f"2️⃣ Pay **₹{amount}** on PhonePe/GPay/Paytm\n"
         f"3️⃣ Come back and click 'I have paid' below\n"
     )
@@ -364,20 +360,8 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
     ])
     
-    # Send QR Code photo with caption
-    try:
-        await query.message.reply_photo(
-            photo=qr_url,
-            caption=msg,
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-        # Delete the old upsell message to clean up
-        await query.message.delete()
-    except Exception as e:
-        logger.error(f"Failed to send QR: {e}")
-        # Fallback to text edit if photo fails
-        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+    # Edit the upsell message to become the invoice
+    await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=keyboard)
 
 
 async def handle_payment_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
