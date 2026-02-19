@@ -79,8 +79,9 @@ CONTACT: none
 """
 
 SUMMARIZE_PROMPT = """Summarize this listing in 5-10 words.
-Only include details that are mentioned. Skip missing info entirely.
-Do NOT say "price not specified" or "unknown" or similar.
+Only include key details (item, price, location). 
+Exclude phone numbers, names, and contact requests.
+Do NOT say "price not specified" or "unknown".
 
 Listing: "{message}"
 
