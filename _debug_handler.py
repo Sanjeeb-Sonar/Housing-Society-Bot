@@ -23,7 +23,7 @@ async def test_handler():
     update.callback_query = MagicMock(spec=CallbackQuery)
     update.callback_query.data = "buy_t1_123"
     update.callback_query.answer = AsyncMock()
-    update.callback_query.message.reply_text = AsyncMock()
+    update.callback_query.edit_message_text = AsyncMock()
     
     # Mock Context
     context = MagicMock(spec=ContextTypes.DEFAULT_TYPE)
@@ -33,18 +33,22 @@ async def test_handler():
         await handle_buy_callback(update, context)
         print("[PASS] Handler executed without exception.")
         
-        # Verify reply was called
-        if update.callback_query.message.reply_text.called:
-            args, kwargs = update.callback_query.message.reply_text.call_args
-            print("\n[INFO] Bot Reply Text:")
+        # Verify edit_message_text was called
+        if update.callback_query.edit_message_text.called:
+            args, kwargs = update.callback_query.edit_message_text.call_args
+            print("\n[INFO] Bot Edited Message Text:")
             print(args[0])
             print("\n[INFO] Reply Markup Keys:")
             if 'reply_markup' in kwargs:
                 for row in kwargs['reply_markup'].inline_keyboard:
                     for btn in row:
-                        print(f" - Button: {btn.text} (URL: {getattr(btn, 'url', 'None')}, Callback: {getattr(btn, 'callback_data', 'None')})")
+                        print(f" - Button: {btn.text}")
+                        if getattr(btn, 'url', None):
+                             print(f"   -> URL: {btn.url}")
+                        if getattr(btn, 'callback_data', None):
+                             print(f"   -> Callback: {btn.callback_data}")
         else:
-            print("[FAIL] Bot did not reply!")
+            print("[FAIL] Bot did not edit message!")
             
     except Exception as e:
         print(f"[FAIL] Handler crashed: {e}")

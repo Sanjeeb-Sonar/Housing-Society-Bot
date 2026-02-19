@@ -243,7 +243,8 @@ def format_upsell_message(total_available: int) -> str:
         "💎 *Get Verified Leads:*",
         f"├ ⭐ ₹{TIER1_PRICE} → {TIER1_LEADS} contacts with details",
         f"└ ⭐ ₹{TIER2_PRICE} → {TIER2_LEADS} contacts + negotiation tips\n",
-        "✅ Verified contacts • 📱 Direct numbers • 💬 Ready to connect",
+        "✅ Verified contacts • 📱 Direct numbers",
+        "\n👇 *Tap a button below to get leads instantly:*",
     ]
     
     return "\n".join(lines)

@@ -286,11 +286,11 @@ async def _handle_get_leads(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(
-                f"⭐ Pay ₹{TIER1_PRICE} — {TIER1_LEADS} Contacts",
+                f"🔓 Unlock {TIER1_LEADS} Contacts — ₹{TIER1_PRICE}",
                 callback_data=f"buy_t1_{request_id}"
             )],
             [InlineKeyboardButton(
-                f"⭐ Pay ₹{TIER2_PRICE} — {TIER2_LEADS} Contacts + Tips",
+                f"🔓 Unlock {TIER2_LEADS} Contacts + Tips — ₹{TIER2_PRICE}",
                 callback_data=f"buy_t2_{request_id}"
             )]
         ])
