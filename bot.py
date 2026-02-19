@@ -361,7 +361,13 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     ])
     
     # Edit the upsell message to become the invoice
-    await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+    try:
+        await query.edit_message_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"Markdown failed, falling back to plain text: {e}")
+        # Fallback to plain text if Markdown fails (e.g. underscores in UPI ID)
+        plain_msg = msg.replace("*", "").replace("`", "").replace("🔹", "-").replace("💳", "")
+        await query.edit_message_text(plain_msg, reply_markup=keyboard)
 
 
 async def handle_payment_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
