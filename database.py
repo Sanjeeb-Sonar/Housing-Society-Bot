@@ -54,16 +54,17 @@ def init_db():
         )
     """)
     
-    # Payment Claims table — tracks Manual UPI payments
+    # Payment Claims table — tracks Razorpay payments
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS payment_claims (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             request_id INTEGER NOT NULL,
             amount INTEGER NOT NULL,
-            upi_ref TEXT,
-            status TEXT DEFAULT 'pending',
-            admin_msg_id INTEGER,
+            tier TEXT DEFAULT 't1',
+            razorpay_link_id TEXT,
+            razorpay_payment_id TEXT,
+            status TEXT DEFAULT 'created',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (request_id) REFERENCES lead_requests(id)
         )
@@ -89,6 +90,20 @@ def init_db():
         cursor.execute("ALTER TABLE lead_requests ADD COLUMN free_leads_sent INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    # Razorpay migration columns
+    try:
+        cursor.execute("ALTER TABLE payment_claims ADD COLUMN tier TEXT DEFAULT 't1'")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE payment_claims ADD COLUMN razorpay_link_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE payment_claims ADD COLUMN razorpay_payment_id TEXT")
+    except sqlite3.OperationalError:
+        pass
     
     # Create indexes for faster queries
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_category ON listings(category)")
@@ -98,6 +113,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_property_type ON listings(property_type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_gender_preference ON listings(gender_preference)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_lead_req_user ON lead_requests(user_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_razorpay_link ON payment_claims(razorpay_link_id)")
     
     conn.commit()
     conn.close()
@@ -242,22 +258,24 @@ def get_leads_for_request(
     return [dict(row) for row in results]
 
 
-# ─── Payments ─────────────────────────────────────────────────
+# ─── Payments (Razorpay) ──────────────────────────────────────
 
 
 def save_payment_claim(
     user_id: int,
     request_id: int,
-    amount: int
+    amount: int,
+    tier: str,
+    razorpay_link_id: str = ""
 ) -> int:
-    """Save a new payment claim."""
+    """Save a new payment claim with Razorpay link ID."""
     conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute("""
-        INSERT INTO payment_claims (user_id, request_id, amount, status)
-        VALUES (?, ?, ?, 'pending')
-    """, (user_id, request_id, amount))
+        INSERT INTO payment_claims (user_id, request_id, amount, tier, razorpay_link_id, status)
+        VALUES (?, ?, ?, ?, ?, 'created')
+    """, (user_id, request_id, amount, tier, razorpay_link_id))
     
     claim_id = cursor.lastrowid
     conn.commit()
@@ -277,47 +295,34 @@ def get_payment_claim(claim_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def update_payment_status(claim_id: int, status: str, admin_msg_id: Optional[int] = None):
-    """Update payment claim status (approved/rejected)."""
+def get_payment_by_link_id(razorpay_link_id: str) -> Optional[dict]:
+    """Look up a payment claim by Razorpay Payment Link ID (for webhook)."""
     conn = get_connection()
     cursor = conn.cursor()
     
-    if admin_msg_id:
-        cursor.execute("UPDATE payment_claims SET status = ?, admin_msg_id = ? WHERE id = ?", 
-                       (status, admin_msg_id, claim_id))
+    cursor.execute("SELECT * FROM payment_claims WHERE razorpay_link_id = ?", (razorpay_link_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    return dict(row) if row else None
+
+
+def update_payment_status(claim_id: int, status: str, razorpay_payment_id: str = ""):
+    """Update payment claim status and optionally store Razorpay payment ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    if razorpay_payment_id:
+        cursor.execute(
+            "UPDATE payment_claims SET status = ?, razorpay_payment_id = ? WHERE id = ?", 
+            (status, razorpay_payment_id, claim_id))
     else:
-        cursor.execute("UPDATE payment_claims SET status = ? WHERE id = ?", 
-                       (status, claim_id))
+        cursor.execute(
+            "UPDATE payment_claims SET status = ? WHERE id = ?", 
+            (status, claim_id))
         
     conn.commit()
     conn.close()
-
-
-def save_payment(
-    user_id: int,
-    request_id: int,
-    tier: str,
-    stars_amount: int,
-    telegram_payment_charge_id: str = "",
-    provider_payment_charge_id: str = ""
-) -> int:
-    """Record a successful payment."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        INSERT INTO payments 
-        (user_id, request_id, tier, stars_amount, 
-         telegram_payment_charge_id, provider_payment_charge_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, request_id, tier, stars_amount,
-          telegram_payment_charge_id, provider_payment_charge_id))
-    
-    payment_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    
-    return payment_id
 
 
 # ─── Matching (existing, updated for cross-group) ────────────

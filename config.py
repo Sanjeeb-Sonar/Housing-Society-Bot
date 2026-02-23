@@ -20,12 +20,16 @@ LISTING_EXPIRY_DAYS = int(os.getenv("LISTING_EXPIRY_DAYS", "180"))
 # Maximum results to show per query
 MAX_RESULTS = 10
 
-# --- Manual UPI Payment Config ---
+# --- Razorpay Payment Config ---
 # Free leads shown in DM when user clicks "Get Leads"
 FREE_LEADS_COUNT = 1
 
-UPI_ID = os.getenv("UPI_ID", "your_upi_id@okaxis")
-UPI_NAME = os.getenv("UPI_NAME", "Housing Bot Admin")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
+
+# Public URL for Razorpay webhook callbacks (your Render web service URL)
+WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "")
 
 # Pricing (in Rupees)
 TIER1_PRICE = int(os.getenv("TIER1_PRICE", "49"))
@@ -33,6 +37,9 @@ TIER1_LEADS = 5
 
 TIER2_PRICE = int(os.getenv("TIER2_PRICE", "199"))
 TIER2_LEADS = 15
+
+# Web server port for webhook receiver
+WEBHOOK_PORT = int(os.getenv("PORT", "10000"))
 
 # Allowed chat IDs (comma-separated). If empty, bot works in all groups.
 _allowed_ids = os.getenv("ALLOWED_CHAT_IDS", "")

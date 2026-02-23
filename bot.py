@@ -2,30 +2,39 @@
 Housing Society Telegram Bot
 Automatically matches queries with relevant listings in a housing society group.
 Two-way matching: sellers see buyers, buyers see sellers.
-Monetized via Telegram Stars for verified lead access.
+Monetized via Razorpay Payment Links for verified lead access.
 """
 
 import logging
 import datetime
+import json
+import hmac
+import hashlib
+import asyncio
+
+import razorpay
+from aiohttp import web
+
 from telegram import (
-    Update, LabeledPrice,
+    Update,
     InlineKeyboardButton, InlineKeyboardMarkup
 )
 from telegram.ext import (
     Application, MessageHandler, CommandHandler,
     ChatMemberHandler, CallbackQueryHandler,
-    PreCheckoutQueryHandler, ContextTypes, filters
+    ContextTypes, filters
 )
 
 from config import (
     BOT_TOKEN, ALLOWED_CHAT_IDS, BOT_ADMIN_ID, BOT_USERNAME,
     FREE_LEADS_COUNT, TIER1_PRICE, TIER1_LEADS, TIER2_PRICE, TIER2_LEADS,
-    UPI_ID, UPI_NAME
+    RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET,
+    WEBHOOK_BASE_URL, WEBHOOK_PORT
 )
 from database import (
     init_db, add_listing, get_stats, cleanup_expired,
     save_lead_request, get_lead_request, get_leads_for_request, 
-    save_payment_claim, get_payment_claim, update_payment_status
+    save_payment_claim, get_payment_by_link_id, update_payment_status
 )
 from classifier import classifier
 from matcher import (
@@ -39,6 +48,14 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Initialize Razorpay client
+razorpay_client = None
+if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
+    razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+    logger.info("Razorpay client initialized")
+else:
+    logger.warning("Razorpay keys not set! Payment links will not work.")
 
 
 def is_allowed_chat(chat_id: int) -> bool:
@@ -240,6 +257,26 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await help_command(update, context)
 
 
+def _create_razorpay_link(amount: int, description: str, request_id: int, user_id: int) -> dict:
+    """Create a Razorpay Payment Link and return the response."""
+    if not razorpay_client:
+        raise Exception("Razorpay not configured")
+    
+    payload = {
+        "amount": amount * 100,  # Razorpay uses paise (₹49 = 4900 paise)
+        "currency": "INR",
+        "description": description,
+        "notes": {
+            "request_id": str(request_id),
+            "user_id": str(user_id),
+        },
+        "callback_url": f"{WEBHOOK_BASE_URL}/razorpay/callback" if WEBHOOK_BASE_URL else "",
+        "callback_method": "get"
+    }
+    
+    return razorpay_client.payment_link.create(payload)
+
+
 async def _handle_get_leads(update: Update, context: ContextTypes.DEFAULT_TYPE, arg: str):
     """Handle the deep link when user clicks 'Get Leads' from group."""
     try:
@@ -262,7 +299,7 @@ async def _handle_get_leads(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         lead_req.get("gender_preference")
     )
     
-    # Get free leads (first 2)
+    # Get free leads (first 1)
     free_listings = get_leads_for_request(request_id, limit=FREE_LEADS_COUNT, offset=0)
     
     if not free_listings:
@@ -281,25 +318,69 @@ async def _handle_get_leads(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     total_available = len(all_listings)
     
     if total_available > FREE_LEADS_COUNT:
-        # Send upsell message with payment buttons
+        # Create Razorpay Payment Links for both tiers
         upsell_msg = format_upsell_message(total_available)
         
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(
-                f"🔓 Unlock {TIER1_LEADS} Contacts — ₹{TIER1_PRICE}",
-                callback_data=f"buy_t1_{request_id}"
-            )],
-            [InlineKeyboardButton(
-                f"🔓 Unlock {TIER2_LEADS} Contacts + Tips — ₹{TIER2_PRICE}",
-                callback_data=f"buy_t2_{request_id}"
-            )]
-        ])
+        buttons = []
         
-        await update.message.reply_text(
-            upsell_msg,
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
+        # Tier 1 payment link
+        try:
+            t1_link = _create_razorpay_link(
+                amount=TIER1_PRICE,
+                description=f"Unlock {TIER1_LEADS} contacts for {label}",
+                request_id=request_id,
+                user_id=user_id
+            )
+            # Save to DB
+            save_payment_claim(
+                user_id=user_id,
+                request_id=request_id,
+                amount=TIER1_PRICE,
+                tier="t1",
+                razorpay_link_id=t1_link["id"]
+            )
+            buttons.append([InlineKeyboardButton(
+                f"🔓 Unlock {TIER1_LEADS} Contacts — ₹{TIER1_PRICE}",
+                url=t1_link["short_url"]
+            )])
+            logger.info(f"Created Razorpay link {t1_link['id']} for ₹{TIER1_PRICE}")
+        except Exception as e:
+            logger.error(f"Failed to create Tier 1 payment link: {e}")
+        
+        # Tier 2 payment link
+        try:
+            t2_link = _create_razorpay_link(
+                amount=TIER2_PRICE,
+                description=f"Unlock {TIER2_LEADS} contacts + tips for {label}",
+                request_id=request_id,
+                user_id=user_id
+            )
+            save_payment_claim(
+                user_id=user_id,
+                request_id=request_id,
+                amount=TIER2_PRICE,
+                tier="t2",
+                razorpay_link_id=t2_link["id"]
+            )
+            buttons.append([InlineKeyboardButton(
+                f"🔓 Unlock {TIER2_LEADS} Contacts + Tips — ₹{TIER2_PRICE}",
+                url=t2_link["short_url"]
+            )])
+            logger.info(f"Created Razorpay link {t2_link['id']} for ₹{TIER2_PRICE}")
+        except Exception as e:
+            logger.error(f"Failed to create Tier 2 payment link: {e}")
+        
+        if buttons:
+            await update.message.reply_text(
+                upsell_msg,
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+        else:
+            await update.message.reply_text(
+                "⚠ Payment system is temporarily unavailable. Please try again later.",
+                parse_mode='Markdown'
+            )
     else:
         await update.message.reply_text(
             "✅ That's all the contacts we have right now. Check back later for more!",
@@ -309,186 +390,76 @@ async def _handle_get_leads(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     logger.info(f"Sent {len(free_listings)} free leads to user {user_id} for request #{request_id}")
 
 
-# ─── Payment Flow (Manual UPI) ──────────────────────────────
+# ─── Razorpay Webhook (Auto-Delivery) ───────────────────────
 
 
-async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle when user clicks a 'Buy' button — show QR Code + UPI details."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data  # e.g. "buy_t1_123"
-    parts = data.split("_")
-    
-    if len(parts) != 3:
-        await query.message.reply_text("❌ Something went wrong.")
+async def _deliver_leads(bot, claim: dict):
+    """Deliver paid leads to the user after successful payment."""
+    lead_req = get_lead_request(claim["request_id"])
+    if not lead_req:
+        logger.error(f"Lead request #{claim['request_id']} not found for claim #{claim['id']}")
         return
     
-    tier = parts[1]  # "t1" or "t2"
-    try:
-        request_id = int(parts[2])
-    except ValueError:
-        await query.message.reply_text("❌ Invalid request.")
-        return
+    label = build_label(
+        lead_req["category"],
+        lead_req.get("subcategory"),
+        lead_req.get("property_type"),
+        lead_req.get("gender_preference")
+    )
     
+    # Determine tier details
+    tier = claim.get("tier", "t1")
     if tier == "t1":
-        amount = TIER1_PRICE
         leads_count = TIER1_LEADS
-    elif tier == "t2":
-        amount = TIER2_PRICE
-        leads_count = TIER2_LEADS
+        include_tips = False
     else:
-        return
-
-    # upi:// deep link — works as a clickable TEXT link in Telegram messages on mobile
-    # (Telegram buttons only support http/https/tg, NOT upi://)
-    upi_link = f"upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&cu=INR"
+        leads_count = TIER2_LEADS
+        include_tips = True
     
-    # Use HTML formatting — more reliable for upi:// links than Markdown
-    msg = (
-        f"💳 <b>Payment Required: ₹{amount}</b>\n\n"
-        f"To get <b>{leads_count} verified contacts</b>, please pay via UPI:\n\n"
-        f"🔹 UPI ID: <code>{UPI_ID}</code>\n"
-        f"🔹 Amount: <code>₹{amount}</code>\n\n"
-        f'👇 <a href="{upi_link}">🔗 Tap here to pay ₹{amount} via UPI App</a>\n\n'
-        f"After paying, tap ✅ below 👇"
-    )
+    paid_listings = get_leads_for_request(claim["request_id"], limit=leads_count, offset=FREE_LEADS_COUNT)
+    paid_msg = format_paid_leads(paid_listings, label, include_tips=include_tips)
     
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
-    ])
-    
-    # Send invoice (HTML mode for reliable upi:// links)
     try:
-        await query.message.reply_text(msg, parse_mode='HTML', reply_markup=keyboard)
-    except Exception as e:
-        logger.error(f"Payment message failed: {e}")
-        plain_msg = (
-            f"Payment Required: Rs.{amount}\n\n"
-            f"UPI ID: {UPI_ID}\n"
-            f"Amount: Rs.{amount}\n\n"
-            f"Open PhonePe/GPay/Paytm and send Rs.{amount} to {UPI_ID}\n"
-            f"Then tap the button below."
-        )
-        await query.message.reply_text(plain_msg, reply_markup=keyboard)
-
-
-async def handle_payment_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle when user clicks 'I have paid'."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data  # "claim_123_49"
-    parts = data.split("_")
-    request_id = int(parts[1])
-    amount = int(parts[2])
-    user = query.from_user
-    
-    # Save claim to DB
-    claim_id = save_payment_claim(user.id, request_id, amount)
-    
-    # Notify User
-    await query.edit_message_text(
-        f"⏳ *Payment Claimed!*\n\n"
-        f"Admin has been notified. You will receive the leads automatically once approved (usually within 10-15 mins).",
-        parse_mode='Markdown'
-    )
-    
-    # Notify Admin
-    if BOT_ADMIN_ID:
-        admin_keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{claim_id}"),
-                InlineKeyboardButton("❌ Reject", callback_data=f"reject_{claim_id}")
-            ]
-        ])
-        
-        await context.bot.send_message(
-            chat_id=BOT_ADMIN_ID,
-            text=(
-                f"💰 **New Payment Claim!**\n\n"
-                f"👤 User: @{user.username} (ID: {user.id})\n"
-                f"💵 Amount: ₹{amount}\n"
-                f"🆔 Claim ID: #{claim_id}\n"
-                f"📄 Request ID: #{request_id}"
-            ),
-            reply_markup=admin_keyboard,
+        await bot.send_message(
+            chat_id=claim["user_id"],
+            text=f"✅ *Payment Received!*\n\n{paid_msg}",
             parse_mode='Markdown'
         )
-        logger.info(f"New payment claim #{claim_id} from user {user.id} sent to admin {BOT_ADMIN_ID}")
-    else:
-        logger.error("BOT_ADMIN_ID not set! Cannot process payment claims.")
-        await query.message.reply_text("⚠ Admin configuration error. Please contact support.")
+        logger.info(f"Delivered {len(paid_listings)} paid leads to user {claim['user_id']}")
+    except Exception as e:
+        logger.error(f"Failed to send leads to user {claim['user_id']}: {e}")
 
-
-async def handle_admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle Admin clicking Approve/Reject."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data  # "approve_99" or "reject_99"
-    action, claim_id_str = data.split("_")
-    claim_id = int(claim_id_str)
-    
-    claim = get_payment_claim(claim_id)
-    if not claim:
-        await query.edit_message_text("❌ Claim not found.")
-        return
-        
-    if claim['status'] != 'pending':
-        await query.edit_message_text(f"⚠ Claim already {claim['status']}.")
-        return
-
-    if action == "approve":
-        # Update DB
-        update_payment_status(claim_id, 'approved', query.message.message_id)
-        
-        # Deliver leads to User
-        request_id = claim['request_id']
-        amount = claim['amount']
-        
-        # Determine tier details based on amount
-        if amount == TIER1_PRICE:
-            leads_count = TIER1_LEADS
-            include_tips = False
-        else:
-            leads_count = TIER2_LEADS
-            include_tips = True
-            
-        lead_req = get_lead_request(request_id)
-        label = build_label(
-            lead_req["category"],
-            lead_req.get("subcategory"),
-            lead_req.get("property_type"),
-            lead_req.get("gender_preference")
-        )
-        
-        paid_listings = get_leads_for_request(request_id, limit=leads_count, offset=FREE_LEADS_COUNT)
-        paid_msg = format_paid_leads(paid_listings, label, include_tips=include_tips)
-        
+    # Notify admin about the sale
+    if BOT_ADMIN_ID:
         try:
-            await context.bot.send_message(
-                chat_id=claim['user_id'],
-                text=f"✅ **Payment Approved!**\n\n{paid_msg}",
+            await bot.send_message(
+                chat_id=BOT_ADMIN_ID,
+                text=(
+                    f"💰 *New Sale!*\n\n"
+                    f"👤 User ID: {claim['user_id']}\n"
+                    f"💵 Amount: ₹{claim['amount']}\n"
+                    f"📄 Request: #{claim['request_id']}\n"
+                    f"🆔 Razorpay: {claim.get('razorpay_payment_id', 'N/A')}"
+                ),
                 parse_mode='Markdown'
             )
-            await query.edit_message_text(f"✅ Approved claim #{claim_id} for ₹{amount}.")
-        except Exception as e:
-            logger.error(f"Failed to send leads to user {claim['user_id']}: {e}")
-            await query.edit_message_text(f"⚠ Approved, but failed to send message to user (blocked?).")
-            
-    elif action == "reject":
-        update_payment_status(claim_id, 'rejected', query.message.message_id)
-        
-        try:
-            await context.bot.send_message(
-                chat_id=claim['user_id'],
-                text="❌ **Payment Verification Failed**\n\nAdmin could not verify your payment. Please contact admin directly with screenshot.",
-                parse_mode='Markdown'
-            )
-            await query.edit_message_text(f"❌ Rejected claim #{claim_id}.")
-        except:
+        except Exception:
             pass
+
+
+def _verify_webhook_signature(body: bytes, signature: str) -> bool:
+    """Verify Razorpay webhook signature."""
+    if not RAZORPAY_WEBHOOK_SECRET:
+        logger.warning("RAZORPAY_WEBHOOK_SECRET not set, skipping signature verification")
+        return True
+    
+    expected = hmac.new(
+        RAZORPAY_WEBHOOK_SECRET.encode('utf-8'),
+        body,
+        hashlib.sha256
+    ).hexdigest()
+    
+    return hmac.compare_digest(expected, signature)
 
 
 # ─── Commands ─────────────────────────────────────────────────
@@ -533,8 +504,8 @@ I automatically match your queries with relevant listings across housing society
 2️⃣ I'll instantly show you how many matches exist
 3️⃣ Tap *"Get Leads"* to get contacts in your DM
 
-*Free:* 2 contacts per search
-*Paid:* More contacts via ⭐ Telegram Stars
+*Free:* 1 contact per search
+*Paid:* More contacts via secure Razorpay payment
 
 *Examples:*
 • "Selling 2BHK flat, 50L, contact 9876543210"
@@ -563,7 +534,7 @@ async def cleanup_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    """Start the bot."""
+    """Start the bot with Razorpay webhook server."""
     
     if not BOT_TOKEN:
         print("❌ Error: TELEGRAM_BOT_TOKEN not set!")
@@ -580,7 +551,7 @@ def main():
     else:
         logger.warning("No ALLOWED_CHAT_IDS set - bot will work in ALL groups")
     
-    # Create application
+    # Create Telegram application
     app = Application.builder().token(BOT_TOKEN).build()
     
     # ── Command handlers ──
@@ -590,11 +561,6 @@ def main():
     
     # ── Group membership handler ──
     app.add_handler(ChatMemberHandler(handle_bot_added, ChatMemberHandler.MY_CHAT_MEMBER))
-    
-    # ─── Payment handlers ──
-    app.add_handler(CallbackQueryHandler(handle_buy_callback, pattern=r"^buy_"))
-    app.add_handler(CallbackQueryHandler(handle_payment_claim, pattern=r"^claim_"))
-    app.add_handler(CallbackQueryHandler(handle_admin_decision, pattern=r"^(approve|reject)_"))
 
     # ─── Group text message handler ──
     app.add_handler(MessageHandler(
@@ -610,9 +576,104 @@ def main():
     else:
         logger.warning("Job queue not available - expired listings cleanup disabled")
     
-    # Start the bot
-    logger.info("🚀 Bot started! Press Ctrl+C to stop.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    # ─── Start bot with webhook server ──
+    logger.info(f"🚀 Bot starting with webhook server on port {WEBHOOK_PORT}...")
+    
+    # Run Telegram polling + aiohttp webhook server together
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    async def run_all():
+        """Run Telegram bot polling and aiohttp webhook server concurrently."""
+        # Initialize Telegram app
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        logger.info("✅ Telegram polling started")
+        
+        # ─── aiohttp webhook server ──
+        aio_app = web.Application()
+        
+        async def health_check(request):
+            """Health check endpoint for Render."""
+            return web.json_response({"status": "ok", "bot": "Housing Society Bot"})
+        
+        async def razorpay_webhook(request):
+            """Handle Razorpay webhook for payment confirmation."""
+            try:
+                body = await request.read()
+                signature = request.headers.get("X-Razorpay-Signature", "")
+                
+                # Verify signature
+                if not _verify_webhook_signature(body, signature):
+                    logger.warning("Invalid Razorpay webhook signature")
+                    return web.json_response({"error": "Invalid signature"}, status=400)
+                
+                payload = json.loads(body)
+                event = payload.get("event", "")
+                logger.info(f"Razorpay webhook received: {event}")
+                
+                if event == "payment_link.paid":
+                    payment_link = payload.get("payload", {}).get("payment_link", {}).get("entity", {})
+                    link_id = payment_link.get("id", "")
+                    
+                    # Get the first payment associated with this link
+                    payments = payload.get("payload", {}).get("payment", {}).get("entity", {})
+                    payment_id = payments.get("id", "")
+                    
+                    logger.info(f"Payment link {link_id} paid. Payment ID: {payment_id}")
+                    
+                    # Look up the claim
+                    claim = get_payment_by_link_id(link_id)
+                    if not claim:
+                        logger.warning(f"No claim found for Razorpay link {link_id}")
+                        return web.json_response({"status": "no_claim"})
+                    
+                    if claim["status"] == "paid":
+                        logger.info(f"Claim #{claim['id']} already processed, skipping")
+                        return web.json_response({"status": "already_processed"})
+                    
+                    # Mark as paid
+                    update_payment_status(claim["id"], "paid", razorpay_payment_id=payment_id)
+                    
+                    # Deliver leads automatically
+                    await _deliver_leads(app.bot, claim)
+                    
+                    logger.info(f"✅ Auto-delivered leads for claim #{claim['id']}")
+                    return web.json_response({"status": "delivered"})
+                
+                return web.json_response({"status": "ok"})
+                
+            except Exception as e:
+                logger.error(f"Webhook error: {e}", exc_info=True)
+                return web.json_response({"error": str(e)}, status=500)
+        
+        aio_app.router.add_get("/", health_check)
+        aio_app.router.add_post("/razorpay/webhook", razorpay_webhook)
+        
+        runner = web.AppRunner(aio_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", WEBHOOK_PORT)
+        await site.start()
+        logger.info(f"✅ Webhook server started on port {WEBHOOK_PORT}")
+        
+        # Keep running until interrupted
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
+        finally:
+            logger.info("Shutting down...")
+            await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
+            await runner.cleanup()
+    
+    try:
+        loop.run_until_complete(run_all())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
 
 
 if __name__ == "__main__":

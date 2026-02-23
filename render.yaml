@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: housing-society-bot
     runtime: python
     buildCommand: pip install -r requirements.txt
@@ -23,7 +23,15 @@ services:
         sync: false
       - key: BOT_USERNAME
         value: societykakubot
-      - key: TIER1_STARS
-        value: "75"
-      - key: TIER2_STARS
-        value: "250"
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: WEBHOOK_BASE_URL
+        sync: false
+      - key: TIER1_PRICE
+        value: "49"
+      - key: TIER2_PRICE
+        value: "199"
