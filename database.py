@@ -12,7 +12,13 @@ def get_connection():
     # Auto-create directory if it doesn't exist
     db_dir = os.path.dirname(DATABASE_PATH)
     if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+        except PermissionError:
+            # On some environments (like Render), we might not have permission 
+            # to create root-level folders. We'll proceed and let sqlite3.connect 
+            # fail if the path is truly invalid.
+            pass
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
