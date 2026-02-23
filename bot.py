@@ -319,7 +319,7 @@ async def _handle_get_leads(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     
     if total_available > FREE_LEADS_COUNT:
         # Create Razorpay Payment Links for both tiers
-        upsell_msg = format_upsell_message(total_available)
+        upsell_msg = format_upsell_message(total_available, category=lead_req["category"])
         
         buttons = []
         
@@ -417,7 +417,7 @@ async def _deliver_leads(bot, claim: dict):
         include_tips = True
     
     paid_listings = get_leads_for_request(claim["request_id"], limit=leads_count, offset=FREE_LEADS_COUNT)
-    paid_msg = format_paid_leads(paid_listings, label, include_tips=include_tips)
+    paid_msg = format_paid_leads(paid_listings, label, include_tips=include_tips, category=lead_req["category"])
     
     try:
         await bot.send_message(

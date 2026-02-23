@@ -118,6 +118,64 @@ def _detect_preference(listings: list) -> Optional[str]:
     return None
 
 
+# ─── Category-Aware Copy ──────────────────────────────────────
+
+PROPERTY_CATEGORIES = {"property", "furniture", "vehicle"}
+SERVICE_CATEGORIES = {"maid_cook", "plumber", "electrician", "carpenter", "driver", 
+                      "ac_repair", "tutor", "packers_movers", "pest_control", "painter",
+                      "security_guard"}
+ROOMMATE_CATEGORIES = {"roommate"}
+
+
+def _get_category_context(category: str) -> dict:
+    """Return category-aware wording for messages."""
+    if category in PROPERTY_CATEGORIES:
+        return {
+            "offer_verb": "offering",          # "5 people offering 2bhk"
+            "search_verb": "searching for",     # "3 buyers searching for 2bhk" 
+            "searcher_word": "buyers",           # "connect with buyers"
+            "upsell_hook": "Why pay ₹500+ to a broker when you can get direct contacts",
+            "tips_title": "Pro Tips to Get the Best Deal",
+            "tips": [
+                "💰 Compare quotes — _multiple contacts = better negotiation power_",
+                "📅 Ask about flexibility — _flexible timing = lower rates_",
+                "🔍 Check hidden costs — _maintenance, deposit, parking_",
+                "🏠 Always visit first — _never commit without seeing it_",
+                "🤝 Mention you're from the society — _trust = better price_",
+            ]
+        }
+    elif category in ROOMMATE_CATEGORIES:
+        return {
+            "offer_verb": "offering",
+            "search_verb": "looking for",
+            "searcher_word": "people",
+            "upsell_hook": "Find the right match faster — verified contacts directly",
+            "tips_title": "Tips for Finding the Right Roommate",
+            "tips": [
+                "🗣️ Talk first — _a quick call reveals a lot about compatibility_",
+                "📅 Discuss habits — _sleep schedule, guests, cleanliness_",
+                "💰 Clarify expenses — _rent split, bills, food, WiFi_",
+                "📋 Set expectations — _agree on rules before moving in_",
+                "🏠 Visit the place — _see the room and common areas first_",
+            ]
+        }
+    else:
+        return {
+            "offer_verb": "available for",
+            "search_verb": "looking for",
+            "searcher_word": "people",
+            "upsell_hook": "Skip the hassle of asking around — get verified contacts instantly",
+            "tips_title": "Tips to Get the Best Service",
+            "tips": [
+                "📞 Call multiple — _compare rates before committing_",
+                "⭐ Ask for references — _past work speaks louder than words_",
+                "💰 Negotiate upfront — _agree on pricing before work starts_",
+                "📋 Get it in writing — _scope of work + timeline + payment terms_",
+                "🤝 Mention you're from the society — _community trust = better service_",
+            ]
+        }
+
+
 # ─── Group Hook Messages ─────────────────────────────────────
 
 
@@ -139,37 +197,42 @@ def format_hook_response_for_query(
     if total == 0:
         return None
 
+    ctx = _get_category_context(category)
     emoji = CATEGORY_EMOJIS.get(category, "📋")
     label = build_label(category, subcategory, property_type, gender_preference)
 
-    # Build compact hook with details
+    # Build detail snippets
     detail_parts = []
     
-    # Try to get avg price for property
     if category == "property" and listings_sample:
         avg_k = _extract_rent_prices(listings_sample)
         if avg_k:
-            detail_parts.append(f"avg rent {avg_k}k")
+            detail_parts.append(f"starting ~{avg_k}k")
     
-    # Try to detect preference
     if listings_sample:
         pref = _detect_preference(listings_sample)
         if pref:
             detail_parts.append(pref)
     
-    # Time context
-    if recent > 0:
-        detail_parts.append(f"in the last 7 days")
+    detail_str = " · ".join(detail_parts)
+    detail_line = f"\n📌 _{detail_str}_" if detail_str else ""
     
-    detail_str = ". ".join(detail_parts)
-    if detail_str:
-        detail_str = f" {detail_str}"
+    # Urgency
+    if recent > 0 and recent < total:
+        urgency = f"\n⚡ _{recent} new this week — act fast!_"
+    elif recent > 0:
+        urgency = f"\n⚡ _All posted this week!_"
+    else:
+        urgency = ""
     
-    people = "person" if total == 1 else "people"
-    line1 = f"{emoji} *Found {total} {people} offering {label}!*{detail_str}"
-    line2 = f"🤖 Tap *\"Get Leads\"* to see the contacts instantly"
+    lines = [
+        f"{emoji} *{total} verified contacts available for {label}!*",
+        detail_line,
+        urgency,
+        f"\n👇 _Tap below to get contacts directly in your DM_"
+    ]
     
-    return f"{line1}\n{line2}"
+    return "\n".join(line for line in lines if line)
 
 
 def format_hook_response_for_offer(
@@ -190,72 +253,84 @@ def format_hook_response_for_offer(
     if total == 0:
         return None
 
-    emoji = CATEGORY_EMOJIS.get(category, "📋")
+    ctx = _get_category_context(category)
     label = build_label(category, subcategory, property_type, gender_preference)
 
-    # Time context
-    time_str = ""
+    # Urgency
     if recent > 0:
-        time_str = f" {recent} searched in the last 7 days."
+        urgency = f"\n🔥 _{recent} searched just this week!_"
+    else:
+        urgency = ""
     
-    people = "person is" if total == 1 else "people are"
-    line1 = f"🔔 *{total} {people} actively looking for {label}!*{time_str}"
-    line2 = f"🤖 Tap *\"Get Leads\"* to connect with buyers instantly"
+    people_word = "person" if total == 1 else ctx["searcher_word"]
     
-    return f"{line1}\n{line2}"
+    lines = [
+        f"🚨 *{total} {people_word} already {ctx['search_verb']} {label}!*",
+        urgency,
+        f"\n💬 _Get their details and close the deal before someone else does_",
+        f"\n👇 _Tap below to connect now_"
+    ]
+    
+    return "\n".join(line for line in lines if line)
 
 
 # ─── DM Lead Formatters ──────────────────────────────────────
 
 
 def format_free_leads(listings: list, label: str) -> str:
-    """Format 2 free contact cards for DM."""
+    """Format free contact cards for DM — designed to tease and convert."""
     if not listings:
         return "😔 No contacts available right now. Check back soon!"
     
-    lines = [f"📋 *Here are {len(listings)} contacts for \"{label}\":*\n"]
+    lines = [
+        f"🎁 *FREE Preview — {len(listings)} contact for \"{label}\":*",
+        ""
+    ]
     
     for i, listing in enumerate(listings, 1):
-        # Name
         username = listing.get("username")
         first_name = listing.get("first_name") or "Someone"
         name_str = f"@{username}" if username else first_name
         
-        # Short description
         desc = _extract_short_detail(listing.get("message", ""))
-        
-        # Contact
         contact = listing.get("contact")
         
-        contact_line = f" | 📞 {contact}" if contact else ""
-        lines.append(f"{i}️⃣ *{name_str}*{contact_line}\n   _{desc}_")
+        contact_line = f" · 📞 {contact}" if contact else ""
+        lines.append(f"👤 *{name_str}*{contact_line}")
+        lines.append(f"   _{desc}_")
     
     return "\n".join(lines)
 
 
-def format_upsell_message(total_available: int) -> str:
-    """Format the upsell message shown after free leads."""
+def format_upsell_message(total_available: int, category: str = "property") -> str:
+    """Format the upsell message — category-aware pitch."""
     remaining = max(0, total_available - FREE_LEADS_COUNT)
+    ctx = _get_category_context(category)
     
     lines = [
-        "━━━━━━━━━━━━━━━━━━━━━━",
-        f"📊 *{remaining} more verified contacts available!*\n",
-        "💎 *Get Verified Leads:*",
-        f"├ ⭐ ₹{TIER1_PRICE} → {TIER1_LEADS} contacts with details",
-        f"└ ⭐ ₹{TIER2_PRICE} → {TIER2_LEADS} contacts + negotiation tips\n",
-        "✅ Verified contacts • 📱 Direct numbers",
-        "\n👇 *Tap a button below to get leads instantly:*",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"\n🔥 *{remaining} more people are waiting to connect!*",
+        f"\n_{ctx['upsell_hook']} for just ₹{TIER1_PRICE}!_",
+        f"\n✅ Verified contacts with phone numbers",
+        f"✅ Direct connection — no middleman",
+        f"✅ Updated this week",
+        f"\n👇 *Unlock now — contacts delivered in seconds:*",
     ]
     
     return "\n".join(lines)
 
 
-def format_paid_leads(listings: list, label: str, include_tips: bool = False) -> str:
-    """Format paid contact cards for DM delivery after payment."""
+def format_paid_leads(listings: list, label: str, include_tips: bool = False, category: str = "property") -> str:
+    """Format paid contact cards — category-aware tips."""
     if not listings:
         return "😔 No additional contacts found. You have not been charged."
     
-    lines = [f"🔓 *Here are your {len(listings)} verified contacts for \"{label}\":*\n"]
+    ctx = _get_category_context(category)
+    
+    lines = [
+        f"🎉 *You're in! Here are your {len(listings)} contacts for \"{label}\":*",
+        ""
+    ]
     
     for i, listing in enumerate(listings, 1):
         username = listing.get("username")
@@ -265,18 +340,16 @@ def format_paid_leads(listings: list, label: str, include_tips: bool = False) ->
         desc = _extract_short_detail(listing.get("message", ""))
         contact = listing.get("contact")
         
-        contact_line = f" | 📞 {contact}" if contact else ""
-        lines.append(f"{i}. *{name_str}*{contact_line}\n   _{desc}_")
+        contact_line = f" · 📞 {contact}" if contact else ""
+        lines.append(f"{i}. *{name_str}*{contact_line}")
+        lines.append(f"   _{desc}_")
     
     if include_tips:
-        lines.append("\n💡 *Negotiation Tips:*\n")
-        lines.append("1️⃣ *Compare prices* — you now have multiple contacts. Use competing quotes to negotiate better rates.")
-        lines.append("2️⃣ *Ask about move-in date* — flexible timing often means lower rent/price.")
-        lines.append("3️⃣ *Check for hidden costs* — maintenance, parking, deposit amount, painting charges.")
-        lines.append("4️⃣ *Request a visit first* — never commit without seeing the place/meeting the person.")
-        lines.append("5️⃣ *Mention you're from the society group* — community trust = better deals.")
+        lines.append(f"\n🧠 *{ctx['tips_title']}:*\n")
+        for tip in ctx["tips"]:
+            lines.append(tip)
     
-    lines.append("\n✅ _Thank you for using Society Ka Bot!_")
+    lines.append("\n💙 _Thanks for using Society Ka Bot! Search again anytime._")
     
     return "\n".join(lines)
 
