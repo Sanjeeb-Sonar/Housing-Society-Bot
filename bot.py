@@ -340,37 +340,36 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         return
 
-    # Bot API doesn't support upi:// in buttons, so we use an https bridge (upi.link)
+    # upi:// deep link — works as a clickable TEXT link in Telegram messages on mobile
+    # (Telegram buttons only support http/https/tg, NOT upi://)
     upi_link = f"upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&cu=INR"
-    upi_button_url = f"https://upi.link/pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&cu=INR"
     
     msg = (
         f"💳 *Payment Required: ₹{amount}*\n\n"
         f"To get *{leads_count} verified contacts*, please pay via UPI:\n\n"
-        f"🔹 **UPI ID:** `{UPI_ID}`\n"
-        f"🔹 **Amount:** `₹{amount}`\n\n"
-        f"👇 **Tap the button below to pay now:**"
+        f"🔹 UPI ID: `{UPI_ID}`\n"
+        f"🔹 Amount: `₹{amount}`\n\n"
+        f"👇 [🔗 Tap here to pay ₹{amount} via UPI App]({upi_link})\n\n"
+        f"After paying, tap ✅ below 👇"
     )
     
-    # Inline buttons (Using https bridge to open UPI app)
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔗 Tap here to pay via UPI", url=upi_button_url)],
         [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
     ])
     
-    # Send invoice as a NEW message
+    # Send invoice
     try:
         await query.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Payment message failed: {e}")
-        # Fallback to text link if button fails
-        fallback_msg = (
+        plain_msg = (
             f"Payment Required: Rs.{amount}\n\n"
-            f"UPI ID: {UPI_ID}\n\n"
-            f"🔗 [Tap here to Pay]({upi_link})\n\n"
-            f"Then tap 'I have paid' below."
+            f"UPI ID: {UPI_ID}\n"
+            f"Amount: Rs.{amount}\n\n"
+            f"Open PhonePe/GPay/Paytm and send Rs.{amount} to {UPI_ID}\n"
+            f"Then tap the button below."
         )
-        await query.message.reply_text(fallback_msg, parse_mode='Markdown', reply_markup=keyboard)
+        await query.message.reply_text(plain_msg, reply_markup=keyboard)
 
 
 async def handle_payment_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
