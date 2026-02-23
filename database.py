@@ -1,33 +1,49 @@
-"""SQLite database operations for storing and retrieving listings."""
-
 import sqlite3
 import os
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from config import DATABASE_PATH, LISTING_EXPIRY_DAYS
 
 
+logger = logging.getLogger(__name__)
+
 def get_connection():
     """Get database connection with row factory."""
+    path = DATABASE_PATH
+    
     # Auto-create directory if it doesn't exist
-    db_dir = os.path.dirname(DATABASE_PATH)
+    db_dir = os.path.dirname(path)
     if db_dir:
         try:
             os.makedirs(db_dir, exist_ok=True)
         except PermissionError:
-            # On some environments (like Render), we might not have permission 
-            # to create root-level folders. We'll proceed and let sqlite3.connect 
-            # fail if the path is truly invalid.
-            pass
-    conn = sqlite3.connect(DATABASE_PATH)
+            logger.warning(f"Permission denied creating directory: {db_dir}. Falling back to local directory.")
+            # Fallback to current directory if we can't create/access the target dir
+            path = os.path.basename(DATABASE_PATH)
+    
+    try:
+        conn = sqlite3.connect(path)
+        # Verify connectivity
+        conn.execute("SELECT 1")
+    except sqlite3.OperationalError as e:
+        logger.error(f"Failed to open database at {path}: {e}. Trying local fallback.")
+        path = "housing_bot.backup.db"
+        conn = sqlite3.connect(path)
+
+    logger.info(f"Using database at: {os.path.abspath(path)}")
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
     """Initialize the database schema."""
-    conn = get_connection()
-    cursor = conn.cursor()
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+    except Exception as e:
+        logger.error(f"Critical error initializing database: {e}")
+        raise e
     
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS listings (
