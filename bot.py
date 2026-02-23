@@ -347,23 +347,18 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     msg = (
         f"💳 *Payment Required: ₹{amount}*\n\n"
         f"To get *{leads_count} verified contacts*, please pay via UPI:\n\n"
-        f"🔹 **UPI ID:** `{UPI_ID}`\n"
-        f"🔹 **Amount:** `₹{amount}`\n\n"
-        f"👇 *Tap a button below to Pay:*\n\n"
-        f"1️⃣ Click a Pay button or scan QR (if available)\n"
-        f"2️⃣ Pay **₹{amount}** on PhonePe/GPay/Paytm\n"
-        f"3️⃣ Come back and click 'I have paid' below\n"
+        f"🔹 UPI ID: `{UPI_ID}`\n"
+        f"🔹 Amount: `₹{amount}`\n\n"
+        f"👇 *Pay using one of these methods:*\n\n"
+        f"🔗 [Tap here to pay ₹{amount} via UPI App]({upi_link})\n\n"
+        f"Or manually:\n"
+        f"1️⃣ Open PhonePe / GPay / Paytm\n"
+        f"2️⃣ Send ₹{amount} to `{UPI_ID}`\n"
+        f"3️⃣ Come back and tap ✅ below\n"
     )
     
-    # Primary keyboard with multiple Pay buttons
+    # Only callback buttons (Telegram does NOT support upi:// in button URLs)
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔗 Tap to Pay via UPI", url=upi_link)],
-        [InlineKeyboardButton("2️⃣ Pay on PhonePe/GPay", url=upi_link)],
-        [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
-    ])
-    
-    # Safe keyboard (fallback) without the link button (in case URL fails)
-    safe_keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
     ])
     
@@ -371,10 +366,16 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         await query.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
     except Exception as e:
-        logger.error(f"Message send failed (Markdown or Button URL): {e}")
-        # Fallback to plain text + SAFE keyboard (no deep link button)
-        plain_msg = msg.replace("*", "").replace("`", "").replace("🔹", "-").replace("💳", "")
-        await query.message.reply_text(plain_msg, reply_markup=safe_keyboard)
+        logger.error(f"Payment message failed: {e}")
+        plain_msg = (
+            f"Payment Required: Rs.{amount}\n\n"
+            f"UPI ID: {UPI_ID}\n"
+            f"Amount: Rs.{amount}\n\n"
+            f"1. Open PhonePe / GPay / Paytm\n"
+            f"2. Send Rs.{amount} to {UPI_ID}\n"
+            f"3. Come back and tap the button below\n"
+        )
+        await query.message.reply_text(plain_msg, reply_markup=keyboard)
 
 
 async def handle_payment_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
