@@ -6,7 +6,7 @@ services:
     startCommand: python bot.py
     disk:
       name: data
-      mountPath: /data
+      mountPath: /Bot/Data
       sizeGB: 1
     envVars:
       - key: TELEGRAM_BOT_TOKEN
@@ -14,7 +14,7 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: DATABASE_PATH
-        value: /data/housing_bot.db
+        value: /Bot/Data/housing_bot.db
       - key: LISTING_EXPIRY_DAYS
         value: "180"
       - key: ALLOWED_CHAT_IDS
