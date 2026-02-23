@@ -1,6 +1,7 @@
 """SQLite database operations for storing and retrieving listings."""
 
 import sqlite3
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 from config import DATABASE_PATH, LISTING_EXPIRY_DAYS
@@ -8,6 +9,10 @@ from config import DATABASE_PATH, LISTING_EXPIRY_DAYS
 
 def get_connection():
     """Get database connection with row factory."""
+    # Auto-create directory if it doesn't exist
+    db_dir = os.path.dirname(DATABASE_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
