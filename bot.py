@@ -344,12 +344,13 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     # (Telegram buttons only support http/https/tg, NOT upi://)
     upi_link = f"upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&cu=INR"
     
+    # Use HTML formatting — more reliable for upi:// links than Markdown
     msg = (
-        f"💳 *Payment Required: ₹{amount}*\n\n"
-        f"To get *{leads_count} verified contacts*, please pay via UPI:\n\n"
-        f"🔹 UPI ID: `{UPI_ID}`\n"
-        f"🔹 Amount: `₹{amount}`\n\n"
-        f"👇 [🔗 Tap here to pay ₹{amount} via UPI App]({upi_link})\n\n"
+        f"💳 <b>Payment Required: ₹{amount}</b>\n\n"
+        f"To get <b>{leads_count} verified contacts</b>, please pay via UPI:\n\n"
+        f"🔹 UPI ID: <code>{UPI_ID}</code>\n"
+        f"🔹 Amount: <code>₹{amount}</code>\n\n"
+        f'👇 <a href="{upi_link}">🔗 Tap here to pay ₹{amount} via UPI App</a>\n\n'
         f"After paying, tap ✅ below 👇"
     )
     
@@ -357,9 +358,9 @@ async def handle_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("✅ I have paid", callback_data=f"claim_{request_id}_{amount}")]
     ])
     
-    # Send invoice
+    # Send invoice (HTML mode for reliable upi:// links)
     try:
-        await query.message.reply_text(msg, parse_mode='Markdown', reply_markup=keyboard)
+        await query.message.reply_text(msg, parse_mode='HTML', reply_markup=keyboard)
     except Exception as e:
         logger.error(f"Payment message failed: {e}")
         plain_msg = (
