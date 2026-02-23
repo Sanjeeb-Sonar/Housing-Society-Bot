@@ -32,10 +32,10 @@ RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "")
 
 # Pricing (in Rupees)
-TIER1_PRICE = int(os.getenv("TIER1_PRICE", "49"))
+TIER1_PRICE = int(os.getenv("TIER1_PRICE", "5"))
 TIER1_LEADS = 5
 
-TIER2_PRICE = int(os.getenv("TIER2_PRICE", "199"))
+TIER2_PRICE = int(os.getenv("TIER2_PRICE", "10"))
 TIER2_LEADS = 15
 
 # Web server port for webhook receiver

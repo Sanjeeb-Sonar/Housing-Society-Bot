@@ -32,6 +32,6 @@ services:
       - key: WEBHOOK_BASE_URL
         sync: false
       - key: TIER1_PRICE
-        value: "49"
+        value: "5"
       - key: TIER2_PRICE
-        value: "199"
+        value: "10"
